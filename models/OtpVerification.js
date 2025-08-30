@@ -15,8 +15,8 @@ const otpVerificationSchema = new mongoose.Schema({
   purpose: {
     type: String,
     enum: {
-      values: ['signup', 'login', 'reset_password'],
-      message: 'Purpose must be signup, login, or reset_password'
+      values: ['signup', 'login', 'reset_password', 'forgot-password'],
+      message: 'Purpose must be signup, login, reset_password, or forgot-password'
     },
     required: [true, 'Purpose is required']
   },
@@ -32,7 +32,7 @@ const otpVerificationSchema = new mongoose.Schema({
   attempts: {
     type: Number,
     default: 0,
-    max: [3, 'Maximum 3 attempts allowed']
+    max: [5, 'Maximum 5 attempts allowed'] // Changed from 3 to 5 to match your env variable
   }
 }, {
   timestamps: true

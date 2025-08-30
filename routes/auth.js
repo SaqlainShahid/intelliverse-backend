@@ -4,7 +4,10 @@ const authController = require('../controllers/authController');
 const { 
   validateSignupData, 
   validateLoginData, 
-  validateOTPData 
+  validateOTPData,
+  validateEmailData,              // Added for forgot password
+  validateForgotPasswordOTPData,  // Added for forgot password OTP verification
+  validatePasswordResetData       // Added for password reset
 } = require('../middleware/validation');
 const { otpRateLimiter } = require('../middleware/rateLimiter');
 const { authenticate } = require('../middleware/auth');
@@ -19,7 +22,7 @@ router.post(
 
 router.post(
   '/signup/verify-otp', 
-  validateOTPData, 
+  validateOTPData('signup'), 
   authController.verifySignupOTP
 );
 
@@ -33,8 +36,28 @@ router.post(
 
 router.post(
   '/login/verify-otp', 
-  validateOTPData, 
+  validateOTPData('login'), 
   authController.verifyLoginOTP
+);
+
+// Forgot Password Routes
+router.post(
+  '/forgot-password/send-otp', 
+  otpRateLimiter, 
+  validateEmailData, 
+  authController.sendForgotPasswordOTP
+);
+
+router.post(
+  '/forgot-password/verify-otp', 
+  validateForgotPasswordOTPData, 
+  authController.verifyForgotPasswordOTP
+);
+
+router.post(
+  '/forgot-password/reset', 
+  validatePasswordResetData, 
+  authController.resetPassword
 );
 
 // Token Management

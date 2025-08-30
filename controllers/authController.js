@@ -432,6 +432,204 @@ const getCurrentUser = async (req, res) => {
   }
 };
 
+
+// Add these methods to your existing controllers/authController.js
+
+// Send Forgot Password OTP
+const sendForgotPasswordOTP = async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    // Check if user exists
+    const user = await User.findOne({ email, isActive: true });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'No account found with this email address'
+      });
+    }
+    
+    if (!user.isVerified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account not verified. Please complete signup process first.'
+      });
+    }
+    
+    // Generate OTP
+    const otpCode = generateOTP();
+    const expiresAt = generateOTPExpiry(parseInt(process.env.OTP_EXPIRY_MINUTES));
+    
+    // Save or update OTP for forgot password
+    await OtpVerification.findOneAndUpdate(
+      { email, purpose: 'forgot-password' },
+      { 
+        otpCode, 
+        expiresAt, 
+        isUsed: false, 
+        attempts: 0 
+      },
+      { upsert: true, new: true }
+    );
+    
+    // Send OTP email
+    const emailResult = await sendOTPEmail(email, otpCode, 'forgot-password', user.profile.firstName);
+    
+    if (!emailResult.success) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send reset code. Please try again.'
+      });
+    }
+    
+    console.log(`📧 Password reset OTP sent to: ${email}`);
+    
+    res.status(200).json({
+      success: true,
+      message: 'Password reset code sent to your email',
+      data: {
+        email,
+        expiresIn: process.env.OTP_EXPIRY_MINUTES + ' minutes'
+      }
+    });
+    
+  } catch (error) {
+    console.error('Send Forgot Password OTP Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error. Please try again.'
+    });
+  }
+};
+
+// Verify Forgot Password OTP (Step 1 - just verify OTP)
+const verifyForgotPasswordOTP = async (req, res) => {
+  try {
+    const { email, otpCode } = req.body;
+    
+    // Find OTP record
+    const otpRecord = await OtpVerification.findOne({
+      email,
+      purpose: 'forgot-password',
+      isUsed: false
+    });
+    
+    if (!otpRecord) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reset code not found or already used. Please request a new code.'
+      });
+    }
+    
+    // Check if OTP is expired
+    if (otpRecord.expiresAt < new Date()) {
+      await OtpVerification.deleteOne({ _id: otpRecord._id });
+      return res.status(400).json({
+        success: false,
+        message: 'Reset code has expired. Please request a new one.'
+      });
+    }
+    
+    // Check OTP code
+    if (otpRecord.otpCode !== otpCode) {
+      otpRecord.attempts += 1;
+      await otpRecord.save();
+      
+      if (otpRecord.attempts >= parseInt(process.env.MAX_OTP_ATTEMPTS)) {
+        await OtpVerification.deleteOne({ _id: otpRecord._id });
+        return res.status(400).json({
+          success: false,
+          message: 'Too many failed attempts. Please request a new reset code.'
+        });
+      }
+      
+      return res.status(400).json({
+        success: false,
+        message: `Invalid reset code. ${parseInt(process.env.MAX_OTP_ATTEMPTS) - otpRecord.attempts} attempts remaining.`
+      });
+    }
+    
+    // OTP is valid, but don't mark as used yet (save for password reset)
+    res.status(200).json({
+      success: true,
+      message: 'Reset code verified successfully. You can now set a new password.',
+      data: {
+        email,
+        verified: true
+      }
+    });
+    
+  } catch (error) {
+    console.error('Verify Forgot Password OTP Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Reset code verification failed. Please try again.'
+    });
+  }
+};
+
+// Reset Password (Step 2 - actually reset the password)
+const resetPassword = async (req, res) => {
+  try {
+    const { email, otpCode, newPassword } = req.body;
+    
+    // Find and verify OTP record again
+    const otpRecord = await OtpVerification.findOne({
+      email,
+      purpose: 'forgot-password',
+      isUsed: false
+    });
+    
+    if (!otpRecord || otpRecord.otpCode !== otpCode || otpRecord.expiresAt < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired reset code. Please start the process again.'
+      });
+    }
+    
+    // Find user
+    const user = await User.findOne({ email, isActive: true });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    // Update user password
+    user.password = newPassword; // This will trigger the pre-save hash middleware
+    await user.save();
+    
+    // Mark OTP as used
+    otpRecord.isUsed = true;
+    await otpRecord.save();
+    
+    // Invalidate all existing refresh tokens for this user (force re-login)
+    await RefreshToken.updateMany(
+      { userId: user._id },
+      { isActive: false }
+    );
+    
+    console.log(`🔐 Password reset completed for: ${email}`);
+    
+    res.status(200).json({
+      success: true,
+      message: 'Password reset successfully. Please login with your new password.',
+      data: {
+        email: user.email
+      }
+    });
+    
+  } catch (error) {
+    console.error('Reset Password Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Password reset failed. Please try again.'
+    });
+  }
+};
+
+// Add these to your module.exports
 module.exports = {
   sendSignupOTP,
   verifySignupOTP,
@@ -439,5 +637,10 @@ module.exports = {
   verifyLoginOTP,
   refreshAccessToken,
   logout,
-  getCurrentUser
+  getCurrentUser,
+  // Add new forgot password methods
+  sendForgotPasswordOTP,
+  verifyForgotPasswordOTP,
+  resetPassword
 };
+
