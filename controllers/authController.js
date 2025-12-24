@@ -68,6 +68,16 @@ const verifySignupOTP = async (req, res) => {
   try {
     const { email, otpCode, password, role, profile } = req.body;
     
+    // Validate admin code if role is admin
+    if (role === 'admin') {
+      if (!profile.adminCode || profile.adminCode !== 'ADMIN001') {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid admin code'
+        });
+      }
+    }
+    
     // Find OTP record
     const otpRecord = await OtpVerification.findOne({
       email,
@@ -133,7 +143,7 @@ const verifySignupOTP = async (req, res) => {
       message: 'Account created successfully! You can now login.',
       data: {
         user: {
-          id: user._id,
+          _id: user._id,  // Fix: Use _id instead of id
           email: user.email,
           role: user.role,
           profile: user.profile
@@ -308,7 +318,7 @@ const verifyLoginOTP = async (req, res) => {
       message: 'Login successful',
       data: {
         user: {
-          id: user._id,
+          _id: user._id,  // Fix: Use _id instead of id
           email: user.email,
           role: user.role,
           profile: user.profile,
@@ -407,21 +417,20 @@ const getCurrentUser = async (req, res) => {
   try {
     const user = req.user; // From authenticate middleware
     
-    res.status(200).json({
-      success: true,
-      message: 'User profile retrieved successfully',
-      data: {
-        user: {
-          id: user._id,
-          email: user.email,
-          role: user.role,
-          profile: user.profile,
-          isVerified: user.isVerified,
-          lastLogin: user.lastLogin,
-          createdAt: user.createdAt
-        }
+  res.status(200).json({
+    success: true,
+    message: 'User profile retrieved successfully',
+    data: {
+      user: {
+        _id: user._id,  // Fix: Use _id instead of id
+        email: user.email,
+        role: user.role,
+        profile: user.profile,
+        preferences: user.preferences,
+        lastLogin: user.lastLogin
       }
-    });
+    }
+  });
     
   } catch (error) {
     console.error('Get Current User Error:', error);
@@ -429,6 +438,55 @@ const getCurrentUser = async (req, res) => {
       success: false,
       message: 'Failed to retrieve user profile'
     });
+  }
+};
+
+// Admin/Faculty: List users (e.g., for assignment)
+const getAdminUsers = async (req, res) => {
+  try {
+    const { role = 'faculty', page = 1, limit = 10, search = '' } = req.query;
+    const filter = { role, isActive: true };
+    if (search) {
+      filter.$or = [
+        { email: { $regex: search, $options: 'i' } },
+        { 'profile.firstName': { $regex: search, $options: 'i' } },
+        { 'profile.lastName': { $regex: search, $options: 'i' } },
+      ];
+    }
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const users = await User.find(filter)
+      .select('email role profile.firstName profile.lastName profile.department')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+    const total = await User.countDocuments(filter);
+    res.json({
+      success: true,
+      users,
+      totalPages: Math.ceil(total / parseInt(limit))
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to list users' });
+  }
+};
+
+// Admin system stats (basic)
+const getAdminStats = async (req, res) => {
+  try {
+    const students = await User.countDocuments({ role: 'student' });
+    const faculty = await User.countDocuments({ role: 'faculty' });
+    const admins = await User.countDocuments({ role: 'admin' });
+    const LostAndFoundItem = require('../models/LostAndFoundItem');
+    const itemsTotal = await LostAndFoundItem.countDocuments({});
+    res.json({
+      success: true,
+      stats: {
+        users: { students, faculty, admins },
+        items: { total: itemsTotal }
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to get stats' });
   }
 };
 
@@ -642,5 +700,7 @@ module.exports = {
   sendForgotPasswordOTP,
   verifyForgotPasswordOTP,
   resetPassword
+  , getAdminUsers
+  , getAdminStats
 };
 

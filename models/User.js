@@ -42,6 +42,11 @@ const userSchema = new mongoose.Schema({
       required: [true, 'Last name is required'],
       trim: true
     },
+    displayName: {
+      type: String,
+      default: null,
+      trim: true
+    },
     phone: {
       type: String,
       trim: true
@@ -95,6 +100,9 @@ const userSchema = new mongoose.Schema({
       trim: true
     }
   },
+  mutedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  archivedChats: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Chat' }],
+  deletedChats: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Chat' }],
   lastLogin: {
     type: Date,
     default: null
@@ -109,6 +117,32 @@ const userSchema = new mongoose.Schema({
     }
   }
 });
+
+// Events the user has joined
+userSchema.add({
+  joinedEvents: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Event' }]
+});
+
+// Preferences
+userSchema.add({
+  preferences: {
+    notificationsEnabled: { type: Boolean, default: true },
+    emailNotifications: { type: Boolean, default: true },
+    darkMode: { type: Boolean, default: false },
+    twoFactor: { type: Boolean, default: false }
+  }
+});
+
+// Privacy
+userSchema.add({
+  privacy: {
+    profileVisibility: { type: String, enum: ['everyone', 'department', 'faculty_only', 'private'], default: 'everyone' },
+    canMessage: { type: String, enum: ['everyone', 'department', 'faculty_only', 'none'], default: 'everyone' },
+    shadowMuted: [{ user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, since: { type: Date, default: Date.now } }]
+  }
+});
+
+
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {

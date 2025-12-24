@@ -10,7 +10,7 @@ const {
   validatePasswordResetData       // Added for password reset
 } = require('../middleware/validation');
 const { otpRateLimiter } = require('../middleware/rateLimiter');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, authorize } = require('../middleware/auth');
 
 // Signup Routes
 router.post(
@@ -66,6 +66,21 @@ router.post('/logout', authController.logout);
 
 // Protected Routes
 router.get('/me', authenticate, authController.getCurrentUser);
+
+// Admin/Faculty utilities
+router.get('/admin/users', authenticate, (req, res, next) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'faculty') {
+    return res.status(403).json({ success: false, message: 'Access denied' });
+  }
+  next();
+}, authController.getAdminUsers);
+
+router.get('/admin/stats', authenticate, (req, res, next) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Access denied' });
+  }
+  next();
+}, authController.getAdminStats);
 
 // Health Check Route
 router.get('/health', (req, res) => {

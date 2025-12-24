@@ -55,7 +55,23 @@ const authorize = (...roles) => {
   };
 };
 
+const tryAuthenticate = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const decoded = verifyAccessToken(token);
+      const user = await User.findById(decoded.userId);
+      if (user && user.isActive) {
+        req.user = user;
+      }
+    }
+  } catch (e) {}
+  next();
+};
+
 module.exports = {
   authenticate,
-  authorize
+  authorize,
+  tryAuthenticate
 };
