@@ -1,31 +1,48 @@
-// utils/emailService.js - Corrected file
-const nodemailer = require('nodemailer');
+// utils/emailService.js
+const axios = require('axios');
 const User = require('../models/User');
 
-// Create transporter - FIXED: createTransport (not createTransporter)
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: process.env.EMAIL_PORT,
-  secure: false, // true for 465, false for other ports
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  },
-  tls: {
-    rejectUnauthorized: false
+// Send email via Brevo HTTP API (works on Render — no SMTP port blocking)
+const sendViaBrevo = async (mailOptions) => {
+  const fromMatch = (mailOptions.from || '').match(/^(.*?)\s*<(.+)>$/);
+  const fromName = fromMatch ? fromMatch[1].replace(/['"]/g, '').trim() || 'IntelliVerse' : 'IntelliVerse';
+  const fromEmail = fromMatch ? fromMatch[2] : (mailOptions.from || process.env.EMAIL_USER);
+
+  const toAddresses = Array.isArray(mailOptions.to)
+    ? mailOptions.to.map(e => ({ email: e }))
+    : [{ email: mailOptions.to }];
+
+  const payload = {
+    sender: { name: fromName, email: fromEmail },
+    to: toAddresses,
+    subject: mailOptions.subject,
+    htmlContent: mailOptions.html
+  };
+
+  if (mailOptions.bcc) {
+    const bccList = Array.isArray(mailOptions.bcc)
+      ? mailOptions.bcc
+      : mailOptions.bcc.split(',').map(e => e.trim());
+    payload.bcc = bccList.map(e => ({ email: e }));
   }
-});
+
+  await axios.post('https://api.brevo.com/v3/smtp/email', payload, {
+    headers: {
+      'api-key': process.env.BREVO_API_KEY,
+      'Content-Type': 'application/json'
+    },
+    timeout: 15000
+  });
+};
 
 // Verify email configuration
 const verifyEmailConfig = async () => {
-  try {
-    await transporter.verify();
-    console.log('✅ Email service is ready');
-    return true;
-  } catch (error) {
-    console.error('❌ Email service error:', error.message);
+  if (!process.env.BREVO_API_KEY) {
+    console.error('❌ Email service error: BREVO_API_KEY not set');
     return false;
   }
+  console.log('✅ Email service is ready (Brevo)');
+  return true;
 };
 
 // Signup email template
@@ -245,7 +262,7 @@ const sendOTPEmail = async (email, otpCode, purpose, firstName = 'User') => {
       html: htmlContent
     };
 
-    await transporter.sendMail(mailOptions);
+    await sendViaBrevo(mailOptions);
 
     console.log(`✅ ${purpose} email sent successfully to: ${email}`);
     return { success: true };
@@ -343,7 +360,7 @@ const sendItemFoundNotification = async (ownerEmail, itemDetails, finderDetails)
       html: htmlContent
     };
 
-    await transporter.sendMail(mailOptions);
+    await sendViaBrevo(mailOptions);
 
     console.log(`✅ Item found notification email sent successfully to: ${ownerEmail}`);
     return { success: true };
@@ -554,7 +571,7 @@ const sendTicketNotification = async (type, ticket) => {
         html: emailTemplate.html
       };
 
-      return transporter.sendMail(mailOptions);
+      return sendViaBrevo(mailOptions);
     });
 
     await Promise.all(emailPromises);
@@ -670,7 +687,7 @@ const sendClassroomNotification = async (type, classroom, data) => {
       html: emailTemplate
     };
 
-    await transporter.sendMail(mailOptions);
+    await sendViaBrevo(mailOptions);
     console.log(`✅ Classroom ${type} notification sent to ${recipients.length} students`);
     return { success: true };
   } catch (error) {
@@ -740,7 +757,7 @@ const sendHODActionEmail = async (targetEmail, targetName, hodName, department, 
       html: emailTemplate
     };
 
-    await transporter.sendMail(mailOptions);
+    await sendViaBrevo(mailOptions);
     return { success: true };
   } catch (error) {
     console.error('❌ HOD Action email failed:', error);
@@ -1059,7 +1076,8 @@ module.exports = {
         subject: '🎉 Congratulations! You have been appointed as Event & Club Manager',
         html
       };
-      const result = await transporter.sendMail(mailOptions);
+      await sendViaBrevo(mailOptions);
+      const result = { messageId: 'brevo' };
       return { success: true, messageId: result.messageId };
     } catch (error) {
       console.error('Error sending Event & Club Manager assignment email:', error);
@@ -1234,7 +1252,8 @@ module.exports = {
         subject: `🎉 Congratulations! You have been appointed as HOD - ${department}`,
         html
       };
-      const result = await transporter.sendMail(mailOptions);
+      await sendViaBrevo(mailOptions);
+      const result = { messageId: 'brevo' };
       return { success: true, messageId: result.messageId };
     } catch (error) {
       console.error('Error sending HOD assignment email:', error);
@@ -1252,7 +1271,8 @@ module.exports = {
         subject: `Role Update: HOD Position Removed - ${department}`,
         html
       };
-      const result = await transporter.sendMail(mailOptions);
+      await sendViaBrevo(mailOptions);
+      const result = { messageId: 'brevo' };
       return { success: true, messageId: result.messageId };
     } catch (error) {
       console.error('Error sending HOD removal email:', error);
@@ -1270,7 +1290,8 @@ module.exports = {
         subject: `🎉 Congratulations! Faculty Registration Approved - ${department}`,
         html
       };
-      const result = await transporter.sendMail(mailOptions);
+      await sendViaBrevo(mailOptions);
+      const result = { messageId: 'brevo' };
       return { success: true, messageId: result.messageId };
     } catch (error) {
       console.error('Error sending faculty approval email:', error);
@@ -1288,7 +1309,8 @@ module.exports = {
         subject: `Registration Update - ${department} Department`,
         html
       };
-      const result = await transporter.sendMail(mailOptions);
+      await sendViaBrevo(mailOptions);
+      const result = { messageId: 'brevo' };
       return { success: true, messageId: result.messageId };
     } catch (error) {
       console.error('Error sending faculty rejection email:', error);
@@ -1304,7 +1326,7 @@ module.exports = {
         subject,
         html
       };
-      await transporter.sendMail(mailOptions);
+      await sendViaBrevo(mailOptions);
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
