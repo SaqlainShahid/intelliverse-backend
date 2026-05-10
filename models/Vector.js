@@ -9,4 +9,6 @@ const vectorSchema = new mongoose.Schema({
   wordCount: { type: Number, default: 0 },
 }, { timestamps: true });
 
+vectorSchema.index({ chunk: 'text' });
+
 module.exports = mongoose.model('Vector', vectorSchema);

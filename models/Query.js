@@ -64,6 +64,10 @@ const querySchema = new mongoose.Schema({
   resolution: {
     type: String
   },
+  topicTags: [{
+    type: String,
+    enum: ['Fee', 'Transcript', 'Internship', 'Scholarship', 'Registration', 'Grading', 'Course Drop', 'Leave', 'Hostel', 'Other']
+  }],
   history: [{
     sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // or 'AI' if sender is null/system
     message: String,

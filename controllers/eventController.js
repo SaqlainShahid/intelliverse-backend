@@ -1,5 +1,7 @@
 let Event = require('../models/Event');
 const Club = require('../models/Club');
+const Chat = require('../models/Chat');
+const Message = require('../models/Message');
 const User = require('../models/User');
 const mongoose = require('mongoose');
 const Notification = require('../models/Notification');
@@ -24,6 +26,8 @@ if (!Event || typeof Event.find !== 'function') {
   }
 }
 
+const { isCentralApprover } = require('../middleware/auth');
+
 const getEvents = async (req, res) => {
   try {
     const { category, search, status, limit = 10, page = 1, sortBy = 'date' } = req.query;
@@ -47,13 +51,9 @@ const getEvents = async (req, res) => {
       default: sortOption = { date: 1 };
     }
 
-    const isAdmin = req.user && (req.user.role === 'admin' || req.user.role === 'faculty');
-    if (!isAdmin) {
-      if (req.user) {
-        query.$or = [ { approvalStatus: 'APPROVED' }, { createdBy: req.user._id } ];
-      } else {
-        query.approvalStatus = 'APPROVED';
-      }
+    const approver = req.user && isCentralApprover(req.user);
+    if (!approver) {
+      query.approvalStatus = 'APPROVED';
     }
 
     const events = await Event.find(query)
@@ -82,6 +82,31 @@ const getEvents = async (req, res) => {
   }
 };
 
+const getPendingEvents = async (req, res) => {
+  try {
+    const limit = Number.parseInt(req.query.limit, 10) || 20;
+    const page = Number.parseInt(req.query.page, 10) || 1;
+    const query = { approvalStatus: 'PENDING_APPROVAL' };
+    const [events, total] = await Promise.all([
+      Event.find(query)
+        .select('title date time location category approvalStatus createdAt organizer createdBy')
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .skip((page - 1) * limit)
+        .lean(),
+      Event.countDocuments(query)
+    ]);
+    return res.status(200).json({
+      success: true,
+      data: events,
+      pagination: { total, page }
+    });
+  } catch (error) {
+    console.error('getPendingEvents error:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
 const getEvent = async (req, res) => {
   try {
     const event = await Event.findById(req.params.id)
@@ -94,9 +119,8 @@ const getEvent = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Event not found' });
     }
 
-    const isAdmin = req.user && (req.user.role === 'admin' || req.user.role === 'faculty');
-    const isOwner = req.user && event.createdBy && event.createdBy._id && event.createdBy._id.toString() === req.user._id.toString();
-    if (!isAdmin && !isOwner && event.approvalStatus !== 'APPROVED') {
+    const approver = req.user && isCentralApprover(req.user);
+    if (!approver && event.approvalStatus !== 'APPROVED') {
       return res.status(403).json({ success: false, message: 'Event not approved yet' });
     }
 
@@ -126,11 +150,19 @@ const createEvent = async (req, res) => {
     if (!date || isNaN(new Date(date).getTime())) {
       return res.status(400).json({ success: false, message: 'Valid date is required' });
     }
-    // Organizer removed; ignore falsy values
+    if (!organizer || !mongoose.Types.ObjectId.isValid(String(organizer))) {
+      return res.status(400).json({ success: false, message: 'Organizer (club) is required' });
+    }
+    const club = await Club.findById(organizer).lean();
+    if (!club) {
+      return res.status(404).json({ success: false, message: 'Organizer club not found' });
+    }
+    const canCreate = true;
+    if (!canCreate) {
+      return res.status(403).json({ success: false, message: 'Not authorized to create event for this club' });
+    }
 
-    // Organizer concept removed; no club checks
-
-    const approvalStatus = (req.user.role === 'admin' || req.user.role === 'faculty') ? 'APPROVED' : 'PENDING_APPROVAL';
+    const approvalStatus = 'PENDING_APPROVAL';
     const toCreate = {
       title,
       description,
@@ -143,7 +175,8 @@ const createEvent = async (req, res) => {
       tags: Array.isArray(tags) ? tags : (typeof tags === 'string' && tags.length ? tags.split(',').map(t => t.trim()).filter(Boolean) : []),
       requirements: requirements || [],
       createdBy: req.user._id,
-      approvalStatus
+      approvalStatus,
+      organizer: club._id
     };
     if (req.file) {
       try {
@@ -155,10 +188,20 @@ const createEvent = async (req, res) => {
       }
     }
 
-    let event = await Event.create(toCreate);
-
-    await event.populate('organizer', 'name category');
-    res.status(201).json({ success: true, message: 'Event created successfully', data: event });
+    const session = await mongoose.startSession();
+    let event;
+    await session.withTransaction(async () => {
+      event = await Event.create([{ ...toCreate }], { session });
+      event = event && event[0];
+      const groupName = `${club.name} - ${title}`;
+      const adminId = club.createdBy?.toString() || req.user._id.toString();
+      const participants = [adminId];
+      await Chat.create([{ chatType: 'group', name: groupName, description: null, admins: [adminId], participants, category: 'event', club: club._id, event: event._id }], { session });
+      await Club.updateOne({ _id: club._id }, { $addToSet: { events: event._id } }, { session });
+    });
+    await session.endSession();
+    const populated = await Event.findById(event._id).populate('organizer', 'name category');
+    res.status(201).json({ success: true, message: 'Event created successfully', data: populated });
   } catch (error) {
     console.error('Create event error:', error);
     // Auto-fix legacy qrCode unique index issue and retry once
@@ -211,7 +254,7 @@ const updateEvent = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Event not approved' });
     }
 
-    const canUpdate = event.createdBy.toString() === req.user._id.toString() || req.user.role === 'admin';
+    const canUpdate = event.createdBy.toString() === req.user._id.toString() || req.user.role === 'admin' || req.user.role === 'hod';
     if (!canUpdate) return res.status(403).json({ success: false, message: 'Not authorized to update this event' });
 
     const updateData = { ...req.body };
@@ -263,13 +306,24 @@ const deleteEvent = async (req, res) => {
     const event = await Event.findById(req.params.id);
     if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
 
-    const canDelete = event.createdBy.toString() === req.user._id.toString() || req.user.role === 'admin';
-    if (!canDelete) return res.status(403).json({ success: false, message: 'Not authorized to delete this event' });
+  const canDelete = 
+    event.createdBy.toString() === req.user._id.toString() ||
+    req.user.role === 'admin' ||
+    req.user.role === 'hod' ||
+    req.user.isEventClubManager;
+  if (!canDelete) return res.status(403).json({ success: false, message: 'Not authorized to delete this event' });
 
-    await Event.findByIdAndDelete(req.params.id);
-    await User.updateMany({ joinedEvents: req.params.id }, { $pull: { joinedEvents: req.params.id } });
+  await Event.findByIdAndDelete(req.params.id);
+  await User.updateMany({ joinedEvents: req.params.id }, { $pull: { joinedEvents: req.params.id } });
+  try {
+    const chat = await Chat.findOne({ event: event._id }).select('_id').lean();
+    if (chat) {
+      await Message.deleteMany({ chat: chat._id });
+      await Chat.deleteOne({ _id: chat._id });
+    }
+  } catch {}
 
-    res.status(200).json({ success: true, message: 'Event deleted successfully' });
+  res.status(200).json({ success: true, message: 'Event deleted successfully' });
   } catch (error) {
     console.error('Delete event error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
@@ -300,6 +354,17 @@ const joinEvent = async (req, res) => {
     event.attendees.push({ user: req.user._id, joinedAt: new Date() });
     await event.save();
     await User.findByIdAndUpdate(req.user._id, { $addToSet: { joinedEvents: req.params.id } });
+    try {
+      const club = event.organizer ? await Club.findById(event.organizer) : null;
+      const isClubMember = club ? club.members.some(m => m.user.toString() === req.user._id.toString()) : false;
+      if (isClubMember) {
+        await Chat.updateOne({ event: event._id }, { $addToSet: { participants: req.user._id } });
+        const chat = await Chat.findOne({ event: event._id }).select('_id').lean();
+        if (chat) {
+          await User.updateOne({ _id: req.user._id }, { $pull: { deletedChats: chat._id } });
+        }
+      }
+    } catch {}
 
     res.status(200).json({ success: true, message: 'Successfully joined the event' });
   } catch (error) {
@@ -336,6 +401,9 @@ const leaveEvent = async (req, res) => {
     }
     await event.save();
     await User.findByIdAndUpdate(req.user._id, { $pull: { joinedEvents: req.params.id } });
+    try {
+      await Chat.updateOne({ event: event._id }, { $pull: { participants: req.user._id, admins: req.user._id } });
+    } catch {}
 
     res.status(200).json({ success: true, message: 'Successfully left the event' });
   } catch (error) {
@@ -360,7 +428,7 @@ const generateEventQr = async (req, res) => {
   try {
     const event = await Event.findById(req.params.id);
     if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
-    const canManage = event.createdBy.toString() === req.user._id.toString() || req.user.role === 'admin';
+    const canManage = event.createdBy.toString() === req.user._id.toString() || req.user.role === 'admin' || req.user.role === 'hod';
     if (!canManage) return res.status(403).json({ success: false, message: 'Not authorized' });
     const minutes = parseInt(req.body.expiresInMinutes || 120);
     const code = crypto.randomBytes(16).toString('hex');
@@ -443,7 +511,7 @@ const getEventFeedback = async (req, res) => {
   try {
     const event = await Event.findById(req.params.id);
     if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
-    const canView = event.createdBy.toString() === req.user._id.toString() || req.user.role === 'admin';
+    const canView = event.createdBy.toString() === req.user._id.toString() || req.user.role === 'admin' || req.user.role === 'hod';
     if (!canView) return res.status(403).json({ success: false, message: 'Not authorized' });
     const total = event.feedbacks.length;
     const sum = event.feedbacks.reduce((acc, f) => acc + (f.rating || 0), 0);
@@ -560,7 +628,7 @@ const downloadAttendeesCsv = async (req, res) => {
   try {
     const event = await Event.findById(req.params.id).populate('attendees.user', 'profile.firstName profile.lastName profile.studentId profile.department email');
     if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
-    const canExport = event.createdBy.toString() === req.user._id.toString() || req.user.role === 'admin';
+    const canExport = event.createdBy.toString() === req.user._id.toString() || req.user.role === 'admin' || req.user.role === 'hod';
     if (!canExport) return res.status(403).json({ success: false, message: 'Not authorized' });
     const rows = [['Student ID','First Name','Last Name','Department','Email','Joined At']];
     for (const a of event.attendees) {
@@ -589,7 +657,7 @@ const announceEvent = async (req, res) => {
   try {
     const event = await Event.findById(req.params.id);
     if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
-    const canAnnounce = event.createdBy.toString() === req.user._id.toString() || req.user.role === 'admin' || req.user.role === 'faculty';
+    const canAnnounce = event.createdBy.toString() === req.user._id.toString() || req.user.role === 'admin' || req.user.role === 'faculty' || req.user.role === 'hod';
     if (!canAnnounce) return res.status(403).json({ success: false, message: 'Not authorized' });
     const title = String(req.body.title || '').trim() || 'Event Announcement';
     const message = String(req.body.message || '').trim() || '';
@@ -622,6 +690,17 @@ const approveEvent = async (req, res) => {
     event.approvedAt = new Date();
     event.rejectionReason = null;
     await event.save();
+    try {
+      if (event.createdBy) {
+        await Notification.create({
+          user: event.createdBy,
+          type: 'event_approval',
+          title: 'Event approved',
+          message: `Your event "${event.title}" has been approved`,
+          data: { eventId: event._id, status: event.approvalStatus }
+        });
+      }
+    } catch (e) {}
     return res.json({ success: true, message: 'Event approved' });
   } catch (e) {
     return res.status(500).json({ success: false, message: 'Server error' });
@@ -633,12 +712,33 @@ const rejectEvent = async (req, res) => {
     const event = await Event.findById(req.params.id);
     if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
     const reason = String(req.body.reason || '').trim() || null;
-    event.approvalStatus = 'REJECTED';
-    event.approvedBy = null;
-    event.approvedAt = null;
-    event.rejectionReason = reason;
-    await event.save();
-    return res.json({ success: true, message: 'Event rejected' });
+    try {
+      if (event.createdBy) {
+        await Notification.create({
+          user: event.createdBy,
+          type: 'event_approval',
+          title: 'Event rejected',
+          message: reason
+            ? `Your event "${event.title}" was rejected and removed: ${reason}`
+            : `Your event "${event.title}" was rejected and removed`,
+          data: { eventId: event._id, status: 'REJECTED' }
+        });
+      }
+    } catch (e) {}
+    try {
+      await Event.findByIdAndDelete(event._id);
+      await User.updateMany({ joinedEvents: event._id }, { $pull: { joinedEvents: event._id } });
+      try {
+        const chat = await Chat.findOne({ event: event._id }).select('_id').lean();
+        if (chat) {
+          await Message.deleteMany({ chat: chat._id });
+          await Chat.deleteOne({ _id: chat._id });
+        }
+      } catch {}
+    } catch (cleanupErr) {
+      console.warn('Reject event cleanup failed:', cleanupErr.message);
+    }
+    return res.json({ success: true, message: 'Event rejected and deleted' });
   } catch (e) {
     return res.status(500).json({ success: false, message: 'Server error' });
   }
@@ -646,3 +746,4 @@ const rejectEvent = async (req, res) => {
 
 module.exports.approveEvent = approveEvent;
 module.exports.rejectEvent = rejectEvent;
+module.exports.getPendingEvents = getPendingEvents;

@@ -18,12 +18,18 @@ const eventRoutes = require('./routes/eventRoutes');
 const clubRoutes = require('./routes/clubRoutes');
 const helpdeskRoutes = require('./routes/helpdeskRoutes');
 const chatbotRoutes = require('./routes/chatbotRoutes');
-const chatRoutes = require('./routes/chatRoutes');
 const p2pChatRoutes = require('./routes/p2pChatRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const userRoutes = require('./routes/userRoutes');
 const careerRoutes = require('./routes/careerRoutes');
 const queryRoutes = require('./routes/queryRoutes');
+const hodRoutes = require('./routes/hodRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const facultyRoutes = require('./routes/facultyRoutes');
+const classroomRoutes = require('./routes/classroomRoutes');
+const forumRoutes  = require('./routes/forumRoutes');
+const collabRoutes = require('./routes/collabRoutes');
+const Department = require('./models/Department');
 
 // Import middleware
 const { generalRateLimiter } = require('./middleware/rateLimiter');
@@ -90,7 +96,7 @@ if (process.env.NODE_ENV === "development") {
       bodyKeys = keys.length ? keys : "empty";
     }
 
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`, {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl}`, {
       body: bodyKeys,
       ip: req.ip,
     });
@@ -110,6 +116,28 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Public departments endpoint (no auth required)
+app.get('/api/departments/public', async (req, res) => {
+  try {
+    const depts = await Department.find().select('name keywords admins').lean();
+    return res.json({ success: true, data: depts });
+  } catch (e) {
+    const fallback = [
+      'Computer Science',
+      'Software Engineering',
+      'Electrical Engineering',
+      'Mechanical Engineering',
+      'Civil Engineering',
+      'Business Administration',
+      'Mathematics',
+      'Physics',
+      'Chemistry',
+      'Other'
+    ].map((name) => ({ name }));
+    return res.json({ success: true, data: fallback });
+  }
+});
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/lost', lostAndFoundRoutes);
@@ -117,12 +145,17 @@ app.use('/api/events', eventRoutes);
 app.use('/api/clubs', clubRoutes);
 app.use('/api/helpdesk', helpdeskRoutes);
 app.use('/api/chatbot', chatbotRoutes);
-app.use('/api', chatRoutes);
 app.use('/api/p2p', p2pChatRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/career', careerRoutes);
 app.use('/api/ai', queryRoutes);
+app.use('/api/hod', hodRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/faculty', facultyRoutes);
+app.use('/api/classroom', classroomRoutes);
+app.use('/api/forum',  forumRoutes);
+app.use('/api/collab', collabRoutes);
 
 // ✅ Fixed 404 handler (safe with path-to-regexp)
 app.use((req, res) => {

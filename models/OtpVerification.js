@@ -15,8 +15,8 @@ const otpVerificationSchema = new mongoose.Schema({
   purpose: {
     type: String,
     enum: {
-      values: ['signup', 'login', 'reset_password', 'forgot-password'],
-      message: 'Purpose must be signup, login, reset_password, or forgot-password'
+      values: ['signup', 'login', 'reset_password', 'forgot-password', 'toggle-2fa'],
+      message: 'Purpose must be signup, login, reset_password, forgot-password, or toggle-2fa'
     },
     required: [true, 'Purpose is required']
   },

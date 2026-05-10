@@ -18,8 +18,8 @@ const userSchema = new mongoose.Schema({
   role: {
     type: String,
     enum: {
-      values: ['student', 'faculty', 'admin'],
-      message: 'Role must be student, faculty, or admin'
+      values: ['student', 'faculty', 'hod', 'admin'],
+      message: 'Role must be student, faculty, hod, or admin'
     },
     required: [true, 'Role is required']
   },
@@ -30,6 +30,29 @@ const userSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+  // Faculty approval workflow
+  isApproved: {
+    type: Boolean,
+    default: false // Faculty needs HOD approval
+  },
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null // HOD who approved this faculty
+  },
+  approvedAt: {
+    type: Date,
+    default: null
+  },
+  rejectionReason: {
+    type: String,
+    default: null
+  },
+  approvalStatus: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending' // Only for faculty
   },
   profile: {
     firstName: {
@@ -83,6 +106,11 @@ const userSchema = new mongoose.Schema({
       type: String,
       trim: true
     },
+    employeeType: {
+      type: String,
+      enum: ['permanent', 'visiting', null],
+      default: null
+    },
     officeRoom: {
       type: String,
       trim: true
@@ -100,12 +128,28 @@ const userSchema = new mongoose.Schema({
       trim: true
     }
   },
+  // Faculty expertise tags
+  expertise: [{ type: String, trim: true }],
+
+  // Faculty weekly office hours
+  officeHours: [{
+    day: { type: String, enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] },
+    startTime: { type: String },   // "09:00"
+    endTime:   { type: String },   // "10:00"
+    location:  { type: String },   // "Room 204-B" or "Online"
+    isActive:  { type: Boolean, default: true }
+  }],
+
   mutedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   archivedChats: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Chat' }],
   deletedChats: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Chat' }],
   lastLogin: {
     type: Date,
     default: null
+  },
+  isEventClubManager: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true, // Adds createdAt and updatedAt
@@ -127,9 +171,9 @@ userSchema.add({
 userSchema.add({
   preferences: {
     notificationsEnabled: { type: Boolean, default: true },
-    emailNotifications: { type: Boolean, default: true },
-    darkMode: { type: Boolean, default: false },
-    twoFactor: { type: Boolean, default: false }
+    emailNotifications:   { type: Boolean, default: true },
+    darkMode:             { type: Boolean, default: false },
+    twoFactorEnabled:     { type: Boolean, default: true }  // 2FA on by default
   }
 });
 

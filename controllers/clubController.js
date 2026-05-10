@@ -1,6 +1,10 @@
 const Club = require('../models/Club');
+const Chat = require('../models/Chat');
+const Event = require('../models/Event');
 const cloudinary = require('cloudinary').v2;
 const fs = require('fs');
+const Notification = require('../models/Notification');
+const { isCentralApprover } = require('../middleware/auth');
 
 try {
   cloudinary.config({
@@ -23,13 +27,9 @@ const getClubs = async (req, res) => {
       ];
     }
 
-    const isAdmin = req.user && (req.user.role === 'admin' || req.user.role === 'faculty');
-    if (!isAdmin) {
-      if (req.user) {
-        query.$or = [ { approvalStatus: 'APPROVED' }, { createdBy: req.user._id } ];
-      } else {
-        query.approvalStatus = 'APPROVED';
-      }
+    const approver = req.user && isCentralApprover(req.user);
+    if (!approver) {
+      query.approvalStatus = 'APPROVED';
     }
     const clubs = await Club.find(query)
       .populate('president', 'profile.firstName profile.lastName role')
@@ -51,6 +51,10 @@ const getClub = async (req, res) => {
       .populate('members.user', 'profile.firstName profile.lastName role')
       .populate('events', 'title date category attendees');
     if (!club) return res.status(404).json({ success: false, message: 'Club not found' });
+    const approver = req.user && isCentralApprover(req.user);
+    if (!approver && club.approvalStatus !== 'APPROVED') {
+      return res.status(403).json({ success: false, message: 'Club not approved yet' });
+    }
     res.status(200).json({ success: true, data: club });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error' });
@@ -77,8 +81,7 @@ const createClub = async (req, res) => {
     if (typeof payload.tags === 'string') {
       payload.tags = payload.tags.split(',').map(t => t.trim()).filter(Boolean);
     }
-    const approvalStatus = (req.user.role === 'admin' || req.user.role === 'faculty') ? 'APPROVED' : 'PENDING_APPROVAL';
-    payload.approvalStatus = approvalStatus;
+    payload.approvalStatus = 'PENDING_APPROVAL';
     if (req.file) {
       try {
         const result = await cloudinary.uploader.upload(req.file.path, { folder: 'intelliverse/clubs', resource_type: 'image' });
@@ -89,6 +92,12 @@ const createClub = async (req, res) => {
       }
     }
     const club = await Club.create(payload);
+    try {
+      const exists = await Chat.findOne({ chatType: 'group', category: 'club', club: club._id }).lean();
+      if (!exists) {
+        await Chat.create({ chatType: 'group', name: club.name, description: null, admins: [club.createdBy], participants: [club.createdBy], category: 'club', club: club._id });
+      }
+    } catch {}
     res.status(201).json({ success: true, message: 'Club created', data: club });
   } catch (error) {
     if (error.code === 11000 && error.keyPattern && error.keyPattern.name) {
@@ -105,7 +114,7 @@ const updateClub = async (req, res) => {
   try {
     const club = await Club.findById(req.params.id);
     if (!club) return res.status(404).json({ success: false, message: 'Club not found' });
-    const canUpdate = club.president.toString() === req.user._id.toString() || req.user.role === 'admin';
+    const canUpdate = club.president.toString() === req.user._id.toString() || req.user.role === 'admin' || req.user.role === 'hod';
     if (!canUpdate) return res.status(403).json({ success: false, message: 'Not authorized' });
     const updateData = { ...req.body };
     if (typeof updateData.tags === 'string') {
@@ -134,7 +143,10 @@ const deleteClub = async (req, res) => {
   try {
     const club = await Club.findById(req.params.id);
     if (!club) return res.status(404).json({ success: false, message: 'Club not found' });
-    if (req.user.role !== 'admin') return res.status(403).json({ success: false, message: 'Not authorized' });
+    const isManager = !!req.user.isEventClubManager;
+    if (req.user.role !== 'admin' && req.user.role !== 'hod' && !isManager) {
+      return res.status(403).json({ success: false, message: 'Not authorized' });
+    }
     await Club.findByIdAndDelete(req.params.id);
     res.status(200).json({ success: true, message: 'Club deleted' });
   } catch (error) {
@@ -152,6 +164,14 @@ const joinClub = async (req, res) => {
     const added = club.addMember(req.user._id, 'member');
     if (!added) return res.status(400).json({ success: false, message: 'Already a member' });
     await club.save();
+    try {
+      await Chat.updateOne({ chatType: 'group', category: 'club', club: club._id }, { $addToSet: { participants: req.user._id } });
+      const activeEvents = await Event.find({ _id: { $in: club.events }, status: { $in: ['upcoming', 'ongoing'] } }).select('_id').lean();
+      const eventIds = activeEvents.map(e => e._id);
+      if (eventIds.length) {
+        await Chat.updateMany({ event: { $in: eventIds } }, { $addToSet: { participants: req.user._id } });
+      }
+    } catch {}
     res.status(200).json({ success: true, message: 'Joined club' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error' });
@@ -164,6 +184,10 @@ const leaveClub = async (req, res) => {
     if (!club) return res.status(404).json({ success: false, message: 'Club not found' });
     club.removeMember(req.user._id);
     await club.save();
+    try {
+      await Chat.updateOne({ chatType: 'group', category: 'club', club: club._id }, { $pull: { participants: req.user._id, admins: req.user._id } });
+      await Chat.updateMany({ chatType: 'group', category: 'event', club: club._id }, { $pull: { participants: req.user._id, admins: req.user._id } });
+    } catch {}
     res.status(200).json({ success: true, message: 'Left club' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error' });
@@ -175,7 +199,7 @@ const generateClubQr = async (req, res) => {
   try {
     const club = await Club.findById(req.params.id);
     if (!club) return res.status(404).json({ success: false, message: 'Club not found' });
-    const canManage = club.president.toString() === req.user._id.toString() || req.user.role === 'admin';
+    const canManage = club.president.toString() === req.user._id.toString() || req.user.role === 'admin' || req.user.role === 'hod';
     if (!canManage) return res.status(403).json({ success: false, message: 'Not authorized' });
     club.qrCode = crypto.randomBytes(16).toString('hex');
     club.qrCodeGeneratedAt = new Date();
@@ -198,12 +222,31 @@ const resolveClubByCode = async (req, res) => {
   }
 };
 
-const Notification = require('../models/Notification');
+const getPendingClubs = async (req, res) => {
+  try {
+    const limit = Number.parseInt(req.query.limit, 10) || 20;
+    const page = Number.parseInt(req.query.page, 10) || 1;
+    const query = { approvalStatus: 'PENDING_APPROVAL' };
+    const [clubs, total] = await Promise.all([
+      Club.find(query)
+        .select('name category approvalStatus createdAt president createdBy')
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .skip((page - 1) * limit)
+        .lean(),
+      Club.countDocuments(query)
+    ]);
+    return res.status(200).json({ success: true, data: clubs, pagination: { total, page } });
+  } catch (error) {
+    console.error('getPendingClubs error:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
 const announceClub = async (req, res) => {
   try {
     const club = await Club.findById(req.params.id);
     if (!club) return res.status(404).json({ success: false, message: 'Club not found' });
-    const canAnnounce = club.president.toString() === req.user._id.toString() || req.user.role === 'admin';
+    const canAnnounce = club.president.toString() === req.user._id.toString() || req.user.role === 'admin' || req.user.role === 'hod';
     if (!canAnnounce) return res.status(403).json({ success: false, message: 'Not authorized' });
     const title = String(req.body.title || '').trim() || 'Club Announcement';
     const message = String(req.body.message || '').trim() || '';
@@ -236,6 +279,17 @@ const approveClub = async (req, res) => {
     club.approvedAt = new Date();
     club.rejectionReason = null;
     await club.save();
+    try {
+      if (club.createdBy) {
+        await Notification.create({
+          user: club.createdBy,
+          type: 'club_approval',
+          title: 'Club approved',
+          message: `Your club "${club.name}" has been approved`,
+          data: { clubId: club._id, status: club.approvalStatus }
+        });
+      }
+    } catch (e) {}
     return res.json({ success: true, message: 'Club approved' });
   } catch (e) {
     return res.status(500).json({ success: false, message: 'Server error' });
@@ -247,12 +301,25 @@ const rejectClub = async (req, res) => {
     const club = await Club.findById(req.params.id);
     if (!club) return res.status(404).json({ success: false, message: 'Club not found' });
     const reason = String(req.body.reason || '').trim() || null;
-    club.approvalStatus = 'REJECTED';
-    club.approvedBy = null;
-    club.approvedAt = null;
-    club.rejectionReason = reason;
-    await club.save();
-    return res.json({ success: true, message: 'Club rejected' });
+    try {
+      if (club.createdBy) {
+        await Notification.create({
+          user: club.createdBy,
+          type: 'club_approval',
+          title: 'Club rejected',
+          message: reason
+            ? `Your club "${club.name}" was rejected and removed: ${reason}`
+            : `Your club "${club.name}" was rejected and removed`,
+          data: { clubId: club._id, status: 'REJECTED' }
+        });
+      }
+    } catch (e) {}
+    try {
+      await Club.findByIdAndDelete(club._id);
+    } catch (cleanupErr) {
+      console.warn('Reject club cleanup failed:', cleanupErr.message);
+    }
+    return res.json({ success: true, message: 'Club rejected and deleted' });
   } catch (e) {
     return res.status(500).json({ success: false, message: 'Server error' });
   }
@@ -260,3 +327,4 @@ const rejectClub = async (req, res) => {
 
 module.exports.approveClub = approveClub;
 module.exports.rejectClub = rejectClub;
+module.exports.getPendingClubs = getPendingClubs;

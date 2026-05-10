@@ -105,7 +105,7 @@ router.post('/query', authenticate, async (req, res) => {
 });
 
 // 2. GET /api/ai/queries - Admin Dashboard (List by Dept)
-router.get('/queries', authenticate, authorize('admin', 'faculty'), async (req, res) => {
+router.get('/queries', authenticate, authorize('admin', 'faculty', 'hod'), async (req, res) => {
   try {
     const { department, status } = req.query;
     const filter = {};
@@ -160,7 +160,7 @@ router.get('/my-queries', authenticate, async (req, res) => {
 });
 
 // 4. PATCH /api/ai/queries/:id/reply - Admin Reply
-router.patch('/queries/:id/reply', authenticate, authorize('admin', 'faculty'), async (req, res) => {
+router.patch('/queries/:id/reply', authenticate, authorize('admin', 'faculty', 'hod'), async (req, res) => {
   try {
     const { id } = req.params;
     const { message, status } = req.body;
@@ -209,7 +209,7 @@ router.patch('/queries/:id/reply', authenticate, authorize('admin', 'faculty'), 
 });
 
 // 5. PATCH /api/ai/queries/:id/transfer - Transfer to another Department
-router.patch('/queries/:id/transfer', authenticate, authorize('admin', 'faculty'), async (req, res) => {
+router.patch('/queries/:id/transfer', authenticate, authorize('admin', 'faculty', 'hod'), async (req, res) => {
   try {
     const { id } = req.params;
     const { toDepartment, note } = req.body || {};
@@ -272,7 +272,7 @@ router.patch('/queries/:id/transfer', authenticate, authorize('admin', 'faculty'
 });
 
 // 6. POST /api/ai/queries/:id/collaborators - Add collaborating Department
-router.post('/queries/:id/collaborators', authenticate, authorize('admin', 'faculty'), async (req, res) => {
+router.post('/queries/:id/collaborators', authenticate, authorize('admin', 'faculty', 'hod'), async (req, res) => {
   try {
     const { id } = req.params;
     const { department } = req.body || {};
@@ -323,7 +323,7 @@ router.post('/queries/:id/collaborators', authenticate, authorize('admin', 'facu
 });
 
 // 7. PATCH /api/ai/queries/:id/escalate - Convert to HelpDesk Ticket
-router.patch('/queries/:id/escalate', authenticate, authorize('admin', 'faculty'), async (req, res) => {
+router.patch('/queries/:id/escalate', authenticate, authorize('admin', 'faculty', 'hod'), async (req, res) => {
   try {
     const { id } = req.params;
     const query = await Query.findById(id).populate('userId');
@@ -368,6 +368,64 @@ router.patch('/queries/:id/escalate', authenticate, authorize('admin', 'faculty'
   }
 });
 
+// 8. PATCH /api/ai/queries/:id/tags - Admin sets topic tags on a query
+router.patch('/queries/:id/tags', authenticate, authorize('admin', 'faculty', 'hod'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { topicTags } = req.body;
+
+    const ALLOWED_TOPICS = ['Fee', 'Transcript', 'Internship', 'Scholarship', 'Registration', 'Grading', 'Course Drop', 'Leave', 'Hostel', 'Other'];
+    if (!Array.isArray(topicTags)) {
+      return res.status(400).json({ success: false, message: 'topicTags must be an array' });
+    }
+    const sanitized = topicTags.filter(t => ALLOWED_TOPICS.includes(t));
+
+    const query = await Query.findByIdAndUpdate(
+      id,
+      { topicTags: sanitized },
+      { new: true }
+    ).populate('userId', 'profile.firstName profile.lastName email');
+
+    if (!query) return res.status(404).json({ success: false, message: 'Query not found' });
+
+    if (global.io) global.io.to(query.userId._id.toString()).emit('query:update', query);
+
+    return res.json({ success: true, data: query });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to update topic tags' });
+  }
+});
+
+// 9. GET /api/ai/analytics/topics - Topic tag frequency for analytics
+router.get('/analytics/topics', authenticate, authorize('admin', 'faculty', 'hod'), async (req, res) => {
+  try {
+    const { department, since } = req.query;
+    const matchStage = {};
+
+    if (department) {
+      const d = await resolveDepartment(department);
+      if (d?._id) matchStage.$or = [{ department: d._id }, { collaboratingDepartments: d._id }];
+      else if (ALLOWED_QUERY_TAGS.has(department)) matchStage.tag = department;
+    }
+    if (since) {
+      const d = new Date(since);
+      if (!isNaN(d)) matchStage.createdAt = { $gte: d };
+    }
+
+    const pipeline = [
+      { $match: matchStage },
+      { $unwind: { path: '$topicTags', preserveNullAndEmpty: false } },
+      { $group: { _id: '$topicTags', count: { $sum: 1 } } },
+      { $sort: { count: -1 } }
+    ];
+
+    const results = await Query.aggregate(pipeline);
+    return res.json({ success: true, data: results });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to fetch topic analytics' });
+  }
+});
+
 // 6. POST /api/ai/departments - Create/Update Departments (Admin only)
 router.post('/departments', authenticate, authorize('admin'), async (req, res) => {
     try {
@@ -386,7 +444,16 @@ router.post('/departments', authenticate, authorize('admin'), async (req, res) =
     }
 });
 
-router.get('/departments', authenticate, authorize('admin', 'faculty'), async (req, res) => {
+router.get('/departments/public', async (req, res) => {
+    try {
+        const depts = await Department.find().select('name keywords admins');
+        return res.json({ success: true, data: depts });
+    } catch (e) {
+        return res.status(500).json({ success: false, message: 'Failed to list departments' });
+    }
+});
+
+router.get('/departments', authenticate, authorize('admin', 'faculty', 'hod'), async (req, res) => {
     try {
         const depts = await Department.find();
         return res.json({ success: true, data: depts });

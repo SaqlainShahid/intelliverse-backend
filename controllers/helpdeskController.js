@@ -155,6 +155,10 @@ const createTicket = async (req, res) => {
       });
     }
 
+    const isAtt = (category === 'academic' && subcategory?.toLowerCase().includes('attendance')) || 
+                  title.toLowerCase().includes('attendance') || 
+                  (tags && tags.some(t => t.toLowerCase().includes('attendance')));
+
     // Create ticket
     const ticket = new Ticket({
       title,
@@ -164,7 +168,10 @@ const createTicket = async (req, res) => {
       priority,
       department,
       reportedBy: req.user._id,
-      tags
+      tags,
+      // Logic for multi-stage approval (Attendance Issues)
+      isAttendanceIssue: isAtt,
+      status: isAtt ? 'pending_teacher' : 'open'
     });
 
     await ticket.save();
@@ -232,6 +239,7 @@ const updateTicket = async (req, res) => {
     // Check permissions
     const canUpdate = req.user.role === 'admin' || 
                      req.user.role === 'faculty' || 
+                     req.user.role === 'hod' ||
                      ticket.reportedBy.toString() === req.user._id.toString();
 
     if (!canUpdate) {
@@ -251,12 +259,70 @@ const updateTicket = async (req, res) => {
       }
     });
 
-    // Handle status changes
+    // Handle status changes & Multi-stage Approval transitions
     if (updates.status) {
-      if (updates.status === 'resolved') {
-        filteredUpdates.resolvedAt = new Date();
-      } else if (updates.status === 'closed') {
-        filteredUpdates.closedAt = new Date();
+      // If it's an attendance issue, handle transitions & enforce hierarchy
+      if (ticket.isAttendanceIssue) {
+        const userDesignation = req.user.profile?.designation?.toLowerCase() || '';
+        const teachingKeywords = ['teacher', 'lecturer', 'professor', 'instructor', 'visiting', 'lab engineer'];
+        const isTeachingRole = teachingKeywords.some(keyword => userDesignation.includes(keyword)) || (!userDesignation.includes('coordinator') && !userDesignation.includes('manager'));
+
+        // Guard: Prevent skipping stages or resolving prematurely
+        if (updates.status === 'pending_faculty') {
+          if (ticket.status !== 'pending_teacher') {
+            return res.status(403).json({ success: false, message: 'Teacher must approve before Faculty Overseer stage' });
+          }
+          // Enforce Teaching role for the first stage
+          if (!isTeachingRole || userDesignation.includes('coordinator')) {
+            return res.status(403).json({ success: false, message: 'Only a Teaching Role (Teacher, Lecturer, Professor) can approve this stage, not a Coordinator.' });
+          }
+        }
+        
+        if (updates.status === 'pending_hod') {
+          if (ticket.status !== 'pending_faculty') {
+            return res.status(403).json({ success: false, message: 'Faculty Overseer must approve before HOD stage' });
+          }
+          // Enforce Coordinator role for the Overseer stage
+          if (!userDesignation.includes('coordinator') && req.user.role !== 'admin' && req.user.role !== 'hod') {
+            return res.status(403).json({ success: false, message: 'Only a Faculty Coordinator can approve the Overseer stage.' });
+          }
+        }
+        
+        if (updates.status === 'resolved') {
+          if (ticket.status !== 'pending_hod') {
+            return res.status(403).json({ success: false, message: 'HOD must give final review before resolving attendance issues' });
+          }
+          // Enforce HOD role for final stage
+          if (req.user.role !== 'hod' && req.user.role !== 'admin' && !userDesignation.includes('hod') && !userDesignation.includes('head')) {
+            return res.status(403).json({ success: false, message: 'Only an HOD can resolve the final stage of an attendance issue.' });
+          }
+        }
+
+        // Apply approvals if valid
+        if (updates.status === 'pending_faculty' && ticket.status === 'pending_teacher') {
+          filteredUpdates.approvalChain = { 
+            ...ticket.approvalChain, 
+            teacherApproval: { status: 'approved', approvedBy: req.user._id, approvedAt: new Date(), remarks: updates.remarks || 'Approved by Teacher' }
+          };
+        } else if (updates.status === 'pending_hod' && ticket.status === 'pending_faculty') {
+          filteredUpdates.approvalChain = { 
+            ...ticket.approvalChain, 
+            facultyApproval: { status: 'approved', approvedBy: req.user._id, approvedAt: new Date(), remarks: updates.remarks || 'Approved by Faculty Overseer' }
+          };
+        } else if (updates.status === 'resolved' && ticket.status === 'pending_hod') {
+          filteredUpdates.approvalChain = { 
+            ...ticket.approvalChain, 
+            hodApproval: { status: 'approved', approvedBy: req.user._id, approvedAt: new Date(), remarks: updates.remarks || 'Final Approval by HOD' }
+          };
+          filteredUpdates.resolvedAt = new Date();
+        }
+      } else {
+        // Standard non-attendance ticket transitions
+        if (updates.status === 'resolved') {
+          filteredUpdates.resolvedAt = new Date();
+        } else if (updates.status === 'closed') {
+          filteredUpdates.closedAt = new Date();
+        }
       }
     }
 

@@ -127,7 +127,10 @@ const verifySignupOTP = async (req, res) => {
       password,
       role,
       profile,
-      isVerified: true
+      isVerified: true,
+      // Faculty requires HOD approval before being active
+      isApproved: role === 'faculty' ? false : true,
+      approvalStatus: role === 'faculty' ? 'pending' : 'approved'
     });
     
     await user.save();
@@ -136,17 +139,22 @@ const verifySignupOTP = async (req, res) => {
     otpRecord.isUsed = true;
     await otpRecord.save();
     
-    console.log(`✅ New user registered: ${email} (${role})`);
+    const approvalMsg = role === 'faculty' ? ' (Pending HOD approval)' : '';
+    console.log(`✅ New user registered: ${email} (${role})${approvalMsg}`);
     
     res.status(201).json({
       success: true,
-      message: 'Account created successfully! You can now login.',
+      message: role === 'faculty' 
+        ? 'Account created successfully! Awaiting HOD approval to activate.' 
+        : 'Account created successfully! You can now login.',
       data: {
         user: {
-          _id: user._id,  // Fix: Use _id instead of id
+          _id: user._id,
           email: user.email,
           role: user.role,
-          profile: user.profile
+          profile: user.profile,
+          isApproved: user.isApproved,
+          approvalStatus: user.approvalStatus
         }
       }
     });
@@ -169,68 +177,93 @@ const verifySignupOTP = async (req, res) => {
   }
 };
 
-// Send Login OTP
+// Helper: build the standard user payload included in login responses
+const buildUserPayload = (user) => ({
+  _id: user._id,
+  email: user.email,
+  role: user.role,
+  profile: user.profile,
+  preferences: user.preferences,
+  privacy: user.privacy,
+  isApproved: user.isApproved,
+  approvalStatus: user.approvalStatus,
+  isEventClubManager: user.isEventClubManager,
+  lastLogin: user.lastLogin
+});
+
+// Send Login OTP — or skip OTP entirely when the user has disabled 2FA
 const sendLoginOTP = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    
-    // Find user and verify password
+    const { email, password, deviceInfo = {} } = req.body;
+
+    // Validate credentials
     const user = await User.findOne({ email, isActive: true });
     if (!user || !(await user.comparePassword(password))) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid email or password'
-      });
+      return res.status(400).json({ success: false, message: 'Invalid email or password' });
     }
-    
+
     if (!user.isVerified) {
-      return res.status(400).json({
+      return res.status(400).json({ success: false, message: 'Account not verified. Please complete signup process.' });
+    }
+
+    if (user.role === 'faculty' && !user.isApproved) {
+      return res.status(403).json({
         success: false,
-        message: 'Account not verified. Please complete signup process.'
+        message: 'Your account is pending HOD approval. Please contact your department HOD.',
+        approvalStatus: user.approvalStatus
       });
     }
-    
-    // Generate OTP
+
+    // ── 2FA DISABLED PATH ── return tokens immediately, no OTP step
+    if (user.preferences?.twoFactorEnabled === false) {
+      const { accessToken, refreshToken } = generateTokens(user._id);
+
+      await new RefreshToken({
+        userId: user._id,
+        token: refreshToken,
+        deviceInfo,
+        expiresAt: getTokenExpiry(process.env.JWT_REFRESH_EXPIRY)
+      }).save();
+
+      user.lastLogin = new Date();
+      await user.save();
+
+      console.log(`✅ User logged in (2FA off): ${email}`);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Login successful',
+        data: {
+          tokens: { accessToken, refreshToken },
+          user: buildUserPayload(user)
+        }
+      });
+    }
+
+    // ── 2FA ENABLED PATH ── send OTP email as normal
     const otpCode = generateOTP();
     const expiresAt = generateOTPExpiry(parseInt(process.env.OTP_EXPIRY_MINUTES));
-    
-    // Save OTP
+
     await OtpVerification.findOneAndUpdate(
       { email, purpose: 'login' },
-      { 
-        otpCode, 
-        expiresAt, 
-        isUsed: false, 
-        attempts: 0 
-      },
+      { otpCode, expiresAt, isUsed: false, attempts: 0 },
       { upsert: true, new: true }
     );
-    
-    // Send OTP email
+
     const emailResult = await sendOTPEmail(email, otpCode, 'login', user.profile.firstName);
-    
     if (!emailResult.success) {
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to send OTP email. Please try again.'
-      });
+      return res.status(500).json({ success: false, message: 'Failed to send OTP email. Please try again.' });
     }
-    
+
     res.status(200).json({
       success: true,
       message: 'OTP sent successfully to your email',
-      data: {
-        email,
-        expiresIn: process.env.OTP_EXPIRY_MINUTES + ' minutes'
-      }
+      data: { email, expiresIn: process.env.OTP_EXPIRY_MINUTES + ' minutes' }
     });
-    
+
   } catch (error) {
     console.error('Send Login OTP Error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error. Please try again.'
-    });
+    res.status(500).json({ success: false, message: 'Internal server error. Please try again.' });
   }
 };
 
@@ -312,22 +345,13 @@ const verifyLoginOTP = async (req, res) => {
     await otpRecord.save();
     
     console.log(`✅ User logged in: ${email}`);
-    
+
     res.status(200).json({
       success: true,
       message: 'Login successful',
       data: {
-        user: {
-          _id: user._id,  // Fix: Use _id instead of id
-          email: user.email,
-          role: user.role,
-          profile: user.profile,
-          lastLogin: user.lastLogin
-        },
-        tokens: {
-          accessToken,
-          refreshToken
-        }
+        user: buildUserPayload(user),
+        tokens: { accessToken, refreshToken }
       }
     });
     
@@ -417,20 +441,11 @@ const getCurrentUser = async (req, res) => {
   try {
     const user = req.user; // From authenticate middleware
     
-  res.status(200).json({
-    success: true,
-    message: 'User profile retrieved successfully',
-    data: {
-      user: {
-        _id: user._id,  // Fix: Use _id instead of id
-        email: user.email,
-        role: user.role,
-        profile: user.profile,
-        preferences: user.preferences,
-        lastLogin: user.lastLogin
-      }
-    }
-  });
+    res.status(200).json({
+      success: true,
+      message: 'User profile retrieved successfully',
+      data: { user: buildUserPayload(user) }
+    });
     
   } catch (error) {
     console.error('Get Current User Error:', error);

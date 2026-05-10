@@ -278,42 +278,96 @@ const clearChatHistory = async (req, res) => {
 const improveResume = async (req, res) => {
   try {
     const { role, resumeText, tone } = req.body;
+    
+    if (!process.env.GROQ_API_KEY) {
+      console.error('CRITICAL: GROQ_API_KEY is missing from .env');
+      return res.status(500).json({ 
+        success: false, 
+        message: 'AI Configuration Error: Please ensure your Groq API Key is set in the backend .env file.',
+        error: 'GROQ_API_KEY_MISSING' 
+      });
+    }
+
     if (!role || !resumeText) {
       return res.status(400).json({ success: false, message: 'Role and resumeText are required' });
     }
+    
     const toneKey = String(tone || 'concise').toLowerCase();
-    const toneText =
-      toneKey === 'professional'
-        ? 'Use a professional tone.'
-        : toneKey === 'friendly'
-        ? 'Use a friendly tone.'
-        : 'Use a concise tone.';
-    const systemPrompt = `You are an expert resume reviewer for university students applying to internships and entry-level roles.
-${toneText}
-You must keep answers short and only use bullet points. Do not use paragraphs or salutations.`;
-    const userPrompt = `Target role: ${role}
+    const systemPrompt = `You are the world's most elite Career Architect and Technical Recruiter. 
+Your goal is to provide a hyper-personalized, high-conversion career strategy for a student.
 
-Resume content:
-${resumeText}
+OUTPUT FORMAT:
+You MUST return ONLY a valid JSON object with the following structure:
+{
+  "matchScore": number (0-100),
+  "summary": "one sentence strategic overview",
+  "feedback": ["critical point 1", "critical point 2"],
+  "optimizedBullets": [
+    {"original": "...", "improved": "...", "reason": "..."}
+  ],
+  "skillGaps": ["gap 1", "gap 2"],
+  "keywords": ["ATS kw1", "ATS kw2"],
+  "projectRoadmap": [
+    {"title": "...", "description": "...", "techStack": ["..."]}
+  ],
+  "networkingStrategy": "Industry-specific outreach advice",
+  "coverLetterHook": "A high-impact opening line tailored to this role and the user's background",
+  "interviewPrep": [
+    {"question": "...", "advice": "..."}
+  ],
+  "actionPlan": ["immediate", "short-term", "long-term"]
+}
 
-Return the following as short bullet points only (≤120 words total):
-- Top improvements (3 bullets)
-- One-line summary suggestion
-- 3-5 role-aligned bullets with metrics
-- 8-12 keywords to include`;
-    const resp = await groqClient.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      stream: false,
-      temperature: 0.7,
-    });
-    const answer = resp?.choices?.[0]?.message?.content?.trim() || '';
-    return res.json({ success: true, data: { advice: answer } });
+TONE: ${toneKey === 'professional' ? 'Direct & High-Stakes' : 'Supportive but Strategic'}
+RULES:
+- For optimizedBullets, use the Google X-Y-Z formula: Accomplished [X] by doing [Z], as measured by [Y].
+- The projectRoadmap must be EXTREMELY specific to the target role.
+- SCORING RUBRIC: Calculate matchScore based on: 50% technical skill overlap, 30% relevant experience/projects, 20% quantifiable results. Be mathematically consistent.
+- Be brutally honest about match score.`;
+
+    const userPrompt = `TARGET ROLE: ${role}
+RESUME CONTENT:
+${resumeText}`;
+
+    let resp;
+    try {
+      resp = await groqClient.chat.completions.create({
+        model: 'llama-3.1-70b-versatile',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        response_format: { type: 'json_object' },
+        stream: false,
+        temperature: 0.1,
+      });
+    } catch (groqError) {
+      console.warn('Groq 70B failed, falling back to 8B:', groqError.message);
+      resp = await groqClient.chat.completions.create({
+        model: 'llama-3.1-8b-instant',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        response_format: { type: 'json_object' },
+        stream: false,
+        temperature: 0.1,
+      });
+    }
+    
+    let content = resp?.choices?.[0]?.message?.content?.trim() || '{}';
+    let advice;
+    try {
+      advice = JSON.parse(content);
+    } catch (e) {
+      console.error('Failed to parse AI JSON:', content);
+      advice = { error: "Failed to parse analysis. Please try again.", raw: content };
+    }
+
+    return res.json({ success: true, data: { advice } });
   } catch (error) {
-    return res.status(500).json({ success: false, message: 'Failed to get AI guidance', error: error.message });
+    console.error('Career AI Error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to get optimized AI guidance', error: error.message });
   }
 };
 

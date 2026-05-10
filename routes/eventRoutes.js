@@ -1,11 +1,11 @@
 const express = require('express');
-const { getEvents, getEvent, createEvent, updateEvent, deleteEvent, joinEvent, leaveEvent, getEventCategories, generateEventQr, checkInEvent, submitEventFeedback, getEventFeedback, sendUpcomingReminders, resolveEventByCode, getEventIcs, downloadAttendeesCsv, announceEvent, approveEvent, rejectEvent } = require('../controllers/eventController');
-const { authenticate, authorize, tryAuthenticate } = require('../middleware/auth');
+const { getEvents, getEvent, createEvent, updateEvent, deleteEvent, joinEvent, leaveEvent, getEventCategories, generateEventQr, checkInEvent, submitEventFeedback, getEventFeedback, sendUpcomingReminders, resolveEventByCode, getEventIcs, downloadAttendeesCsv, announceEvent, approveEvent, rejectEvent, getPendingEvents } = require('../controllers/eventController');
+const { authenticate, authorize, tryAuthenticate, requireCentralApprover } = require('../middleware/auth');
 const { upload } = require('../middleware/upload');
 
 const router = express.Router();
 
-// Public
+// Public / general listing
 router.get('/', tryAuthenticate, getEvents);
 router.get('/categories', getEventCategories);
 router.get('/resolve', resolveEventByCode);
@@ -39,8 +39,13 @@ router.post('/:id/qr', authenticate, generateEventQr);
 router.post('/:id/checkin', authenticate, checkInEvent);
 router.post('/:id/feedback', authenticate, submitEventFeedback);
 router.get('/:id/feedback', authenticate, getEventFeedback);
-router.post('/reminders/send', authenticate, authorize('admin','faculty'), sendUpcomingReminders);
-router.patch('/:id/approve', authenticate, authorize('admin','faculty'), approveEvent);
-router.patch('/:id/reject', authenticate, authorize('admin','faculty'), rejectEvent);
+router.post('/reminders/send', authenticate, authorize('admin','faculty','hod'), sendUpcomingReminders);
+
+// Centralized approval workflow
+router.get('/pending', authenticate, requireCentralApprover, getPendingEvents);
+router.put('/:id/approve', authenticate, requireCentralApprover, approveEvent);
+router.put('/:id/reject', authenticate, requireCentralApprover, rejectEvent);
+router.patch('/:id/approve', authenticate, requireCentralApprover, approveEvent);
+router.patch('/:id/reject', authenticate, requireCentralApprover, rejectEvent);
 
 module.exports = router;

@@ -63,117 +63,167 @@ async function createAutoQuery(userId, queryText, aiAnswer, confidence) {
   }
 }
 
-async function generateAIAnswer(query, contextItems) {
-  if (!contextItems || !contextItems.length) {
-    return "Sorry, this information is not available in the academic regulations document.";
+// Helper to refine natural language query into search terms
+async function refineQuery(query) {
+  try {
+    const resp = await groqClient.chat.completions.create({
+      model: "llama-3.1-8b-instant",
+      messages: [
+        { 
+          role: "system", 
+          content: "You are a search query optimizer. Given a student question, extract the main academic/administrative keywords and correct any typos (e.g., 'nexam' -> 'exam'). Return ONLY the optimized query string." 
+        },
+        { role: "user", content: query }
+      ],
+      temperature: 0.1,
+    });
+    return resp.choices[0].message.content || query;
+  } catch {
+    return query;
   }
-  const contextText = contextItems.map((c, idx) => `Chunk ${idx + 1} (source: ${c.metadata?.filename || 'unknown'}):\n${c.text}`).join('\n\n');
-  const systemPrompt = `You are a university AI helpdesk assistant.
-Answer ONLY using the provided context from academic regulations.
-If the answer is not found in the context, reply:
-'Sorry, this information is not available in the academic regulations document.'
-Do not guess. Do not use general knowledge.`;
+}
+
+
+
+async function generateAIAnswer(query, contextItems = [], history = []) {
+  const contextText = contextItems.length 
+    ? contextItems.map((c, idx) => `[Source ${idx + 1} (${c.metadata?.filename || 'Regulations'})]:\n${c.text}`).join('\n\n')
+    : "No direct regulatory documentation found for this specific query.";
+
+  const historyText = history.length
+    ? history.map(h => `${h.role === 'user' ? 'Student' : 'Assistant'}: ${h.content}`).join('\n')
+    : "No previous conversation history.";
+
+  const systemPrompt = `You are a Senior University Systems Assistant for IntelliVerse.
+Your mission is to provide high-precision support using University Assets (PDFs) and general intelligence.
+
+CORE LOGIC:
+1. ANCHORING: Always check the 'Regulatory Context' first. If it contains the answer, stick to it and cite the source.
+2. CONTINUITY: Use the 'Conversation History' to understand context. If the student says "Tell me more about THAT", "THAT" refers to the previous topic in history.
+3. HYBRID KNOWLEDGE: If the Regulations context is insufficient, leverage your full intelligence to help. 
+4. PERSONA: Be authoritative yet welcoming. Act as a top-tier educational consultant.
+5. FORMATTING: Use professional Markdown with bolding for key terms.
+
+STRICT RULE: If you are making a general suggestion not found in PDFs, phrase it as "Based on general university practices..."`;
 
   try {
-    const content = `Student question: "${query}"
+    const messages = [
+      { role: "system", content: systemPrompt },
+      ...history.slice(-6).map(h => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })),
+      { 
+        role: "user", 
+        content: `Regulatory Context for Search:\n${contextText}\n\nStudent's New Question: "${query}"` 
+      }
+    ];
 
-Style: Write a brief, clear answer in a friendly tone. If available, include relevant section/page reference noted in the context headers. Do not add any information that is not present in the context.
-
-Context:
-${contextText}`;
     const resp = await groqClient.chat.completions.create({
-      model: "llama-3.1-8b-instant", // Using Llama3.1 8B Instant model
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: content },
-      ],
-      stream: false,
+      model: "llama-3.3-70b-versatile",
+      messages,
+      temperature: 0.35,
+      max_tokens: 1024,
+      top_p: 0.95
     });
-    const answer = resp.choices[0].message.content || '';
-    return answer.trim();
+    
+    return resp.choices[0].message.content || '';
   } catch (groqError) {
-    throw groqError; // Re-throw to be caught by the main ask function's catch block
+    console.error('Groq Generation Error:', groqError);
+    throw groqError;
   }
 }
 
 async function ask(req, res) {
   try {
     const { query } = req.body;
-    if (!query || typeof query !== 'string') {
-      return res.status(400).json({ success: false, message: 'Query is required' });
-    }
-    const fallbackText = "Sorry, this information is not available in the academic regulations document.";
-    const qraw = String(query || '').trim().toLowerCase();
-    const isGreeting = /^(hi|hello|hey|hlo|hloo|salam|assalam|aoa|good (morning|afternoon|evening)|how are you|yo)\b/.test(qraw);
-    if (isGreeting) {
-      const friendly = 'Hi! I can help with academic regulations and the academic calendar. What would you like to know?';
-      return res.json({ success: true, data: { answer: friendly, confidence: 0, escalated: false, sources: [], sourceUrlRelative: null } });
-    }
+    const userId = req.user?._id;
 
-    await upsertPolicies().catch(() => {});
+    if (!query) return res.status(400).json({ success: false, message: 'Query is required' });
 
-    const { items, confidence } = await searchRelevant(query, 5);
-    if (!items || !items.length) {
-      if (req.user?._id) {
-        await ChatMessage.create({ userId: req.user._id, role: 'user', content: query, confidence: 0, sources: [], sourceUrlRelative: null });
-        await ChatMessage.create({ userId: req.user._id, role: 'assistant', content: fallbackText, confidence: 0, sources: [], sourceUrlRelative: null });
-        
-        // Auto-create Query for Admin
-        await createAutoQuery(req.user._id, query, fallbackText, 0);
-      }
-      return res.json({ success: true, data: { answer: fallbackText, confidence: 0, escalated: false, sources: [] } });
+    // 1. Fetch Conversation Context (Nasa-grade memory approach)
+    let chatHistory = [];
+    if (userId) {
+      chatHistory = await ChatMessage.find({ userId })
+        .sort({ createdAt: -1 })
+        .limit(8)
+        .lean();
+      chatHistory.reverse(); // Chronological order
     }
 
-    const answer = await generateAIAnswer(query, items);
-    const sources = items.map(it => ({ filename: it.metadata?.filename, page: it.metadata?.page })).filter(s => s.filename);
+    const qraw = query.trim().toLowerCase();
+    
+    // Mission-critical handles
+    if (/^(hi|hello|hey|yo|salam|hlo)\b/.test(qraw)) {
+      const greeting = "Greetings! I'm your IntelliVerse Systems Assistant. I'm connected to the University Knowledge Base and ready to assist you with regulations, navigation, or general questions. What's on your mind?";
+      return res.json({ success: true, data: { answer: greeting, confidence: 1, sources: [] } });
+    }
+
+    // 2. Intelligence Layer: Query Refinement & Context Synthesis
+    const refinedQuery = await refineQuery(query);
+    
+    // 3. Retrieval Layer: Hybrid Semantic + Lexical Search
+    const { items, confidence } = await searchRelevant(refinedQuery, 6);
+
+    // 4. Generation Layer: Multi-Context Weighted Reasoning
+    const answer = await generateAIAnswer(query, items, chatHistory);
+    
+    const sources = items.map(it => ({ 
+      filename: it.metadata?.filename, 
+      page: it.metadata?.page 
+    })).filter(s => s.filename);
+
     const sourceUrlRelative = sources.length ? `/${sources[0].filename}` : null;
     const sourceUrl = sources.length ? (canonicalMap[sources[0].filename] || null) : null;
 
-    const result = { success: true, data: { answer, confidence, escalated: false, sources, sourceUrlRelative, sourceUrl } };
-    if (req.user?._id) {
-      await ChatMessage.create({ userId: req.user._id, role: 'user', content: query, confidence: 0, sources: [], sourceUrlRelative: null });
-      await ChatMessage.create({ userId: req.user._id, role: 'assistant', content: answer, confidence, sources, sourceUrlRelative, sourceUrl });
+    const result = { 
+      success: true, 
+      data: { 
+        answer, 
+        confidence: items.length ? confidence : 0.6,
+        sources: sources.slice(0, 2), 
+        sourceUrlRelative, 
+        sourceUrl 
+      } 
+    };
 
-      const isFallback = String(answer || '').trim().toLowerCase() === fallbackText.toLowerCase();
-      if (isFallback) await createAutoQuery(req.user._id, query, answer, confidence);
+    // 5. Persistence & Feedback Loop
+    if (userId) {
+      await ChatMessage.create({ userId, role: 'user', content: query });
+      await ChatMessage.create({ userId, role: 'assistant', content: answer, confidence, sources, sourceUrlRelative, sourceUrl });
+
+      // Proactive Escalation Detection
+      const indicators = ["not found", "sorry", "unfortunately", "contact", "official", "unsure"];
+      const isUncertain = indicators.some(word => answer.toLowerCase().includes(word));
+      
+      if (isUncertain || (items.length > 0 && confidence < 0.22)) {
+        await createAutoQuery(userId, query, answer, confidence);
+      }
     }
 
     return res.json(result);
   } catch (err) {
-    console.error('Chatbot error:', err);
-    const fallback = "Sorry, this information is not available in the academic regulations document.";
-    
-    // Attempt to create query even on error
-    if (req.user?._id) {
-       await createAutoQuery(req.user._id, req.body.query || 'Unknown Query', fallback, 0);
-    }
-    
-    return res.json({ success: true, data: { answer: fallback, confidence: 0, escalated: false, sources: [] } });
+    console.error('NASA-CONTROL: Chatbot Logic Failure:', err);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'System connectivity compromised. Please retry mission command.' 
+    });
   }
 }
 
 async function escalate(req, res) {
   try {
     const { query, aiAnswer = '', confidence = 0 } = req.body;
-    if (!query) {
-      return res.status(400).json({ success: false, message: 'Query is required' });
-    }
     const ticket = await Ticket.create({
-      title: query.slice(0, 180),
-      description: `AI escalation for query:\n\n${query}\n\nAI tentative answer:\n${aiAnswer || 'N/A'}\n\nConfidence: ${Number(confidence).toFixed(2)}`,
+      title: `System Escalation: ${query.slice(0, 60)}...`,
+      description: `MANUAL ESCALATION DETECTED\n\nQuery: ${query}\nAI Logic State: ${aiAnswer}\nConfidence: ${confidence}`,
       category: 'administrative',
-      priority: 'medium',
-      status: 'open',
+      priority: 'high',
       reportedBy: req.user._id,
       department: req.user?.profile?.department || 'general',
       escalated: true,
-      escalatedAt: new Date(),
-      tags: ['ai-escalation']
+      tags: ['priority-support']
     });
     return res.json({ success: true, data: { ticketId: ticket._id } });
   } catch (err) {
-    console.error('Chatbot escalate error:', err);
-    return res.status(500).json({ success: false, message: 'Failed to escalate' });
+    return res.status(500).json({ success: false });
   }
 }
 

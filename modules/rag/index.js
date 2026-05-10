@@ -7,49 +7,63 @@ async function upsertPolicies() {
   // TODO: Implement actual policy upsertion logic here
 }
 
-async function searchRelevant(query, nResults = 4) {
+async function searchRelevant(query, nResults = 5) {
   try {
-    const qEmb = await embedWithRetry(query);
-    const docs = await Vector.find({ 'embedding.0': { $exists: true } }, { chunk: 1, embedding: 1, source: 1, page: 1, wordCount: 1 }).lean();
-
     const qTokens = (query || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
-    const synonyms = new Set([
-      'semester','semesters','start','starts','begin','begins','commence','commencement','opening',
-      'calendar','academic','date','dates','start date','start of semester'
-    ]);
-    const qSet = new Set(qTokens.concat(Array.from(synonyms)));
-    const termRegex = new RegExp(Array.from(qSet).join('|'), 'i');
+    
+    // 1. Semantic Search (Vector)
+    const qEmb = await embedWithRetry(query);
+    const vectorDocs = await Vector.find(
+      { 'embedding.0': { $exists: true } }, 
+      { chunk: 1, embedding: 1, source: 1, page: 1, wordCount: 1 }
+    ).lean();
 
-    const scored = docs.map(d => {
-      const text = d.chunk || '';
-      const tTokens = text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
-      const tSet = new Set(tTokens);
-      let overlap = 0;
-      for (const tk of qSet) {
-        if (tSet.has(tk)) overlap += 1;
-      }
-      const lt = text.toLowerCase();
-      const phraseBoost = (lt.includes('semester start') || lt.includes('start date') || lt.includes('semester begins') || lt.includes('commence') || lt.includes('begin')) ? 2 : 0;
-      const lexScore = overlap + phraseBoost;
+    // 2. Keyword Search (Text Index)
+    const textDocs = await Vector.find(
+      { $text: { $search: query } },
+      { score: { $meta: "textScore" }, chunk: 1, source: 1, page: 1, wordCount: 1 }
+    ).sort({ score: { $meta: "textScore" } }).limit(10).lean();
+
+    const allDocsMap = new Map();
+
+    // Process Vector Results
+    vectorDocs.forEach(d => {
       const cos = calculateCosineSimilarity(qEmb, d.embedding);
-      const score = (0.7 * cos) + (0.3 * Math.min(1, lexScore / Math.max(3, Math.sqrt(d.wordCount || tTokens.length || 1))));
-      return { text, metadata: { filename: d.source, page: d.page }, score };
+      allDocsMap.set(d._id.toString(), { 
+        text: d.chunk, 
+        metadata: { filename: d.source, page: d.page }, 
+        score: cos * 0.8 // Base vector weight
+      });
     });
 
-    scored.sort((a, b) => b.score - a.score);
-    let top = scored.slice(0, nResults);
-    const bestScore = top[0]?.score || 0;
-    if (!top.length || bestScore < 0.12) {
-      const lexMatches = await Vector.find({ chunk: { $regex: termRegex } }, { chunk: 1, source: 1, page: 1 }).lean();
-      const expanded = lexMatches.map(d => ({ text: d.chunk, metadata: { filename: d.source, page: d.page }, score: 0.15 }));
-      top = [...top, ...expanded];
-      top.sort((a, b) => b.score - a.score);
-      top = top.slice(0, nResults);
-    }
-    const confidence = top.length ? Math.max(0, Math.min(1, top[0].score)) : 0.2;
+    // Process Text Results (Hybrid Boost)
+    textDocs.forEach(d => {
+      const id = d._id.toString();
+      const existing = allDocsMap.get(id);
+      const textBoost = 0.4;
+      if (existing) {
+        existing.score += textBoost;
+      } else {
+        allDocsMap.set(id, {
+          text: d.chunk,
+          metadata: { filename: d.source, page: d.page },
+          score: textBoost
+        });
+      }
+    });
+
+    const combined = Array.from(allDocsMap.values());
+    combined.sort((a, b) => b.score - a.score);
+    
+    const top = combined.slice(0, nResults);
+    
+    // Higher precision confidence calculation
+    const confidence = top.length ? Math.min(1, top[0].score) : 0.2;
+    
     return { items: top, confidence };
-  } catch {
-    return { items: [], confidence: 0.2 };
+  } catch (err) {
+    console.error('SearchRelevant Error:', err);
+    return { items: [], confidence: 0 };
   }
 }
 

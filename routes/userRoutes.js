@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const User = require('../models/User');
+const OtpVerification = require('../models/OtpVerification');
+const { generateOTP, generateOTPExpiry } = require('../utils/otpGenerator');
+const { sendOTPEmail } = require('../utils/emailService');
 const { upload } = require('../middleware/upload');
 const cloudinary = require('cloudinary').v2;
 const fs = require('fs');
@@ -14,6 +17,25 @@ cloudinary.config({
 });
 
 router.use(authenticate);
+
+// Get user statistics
+router.get('/stats', async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('-password');
+    
+    // Return basic stats based on role
+    const stats = {
+      role: user.role,
+      department: user.profile.department,
+      // Add more stats as needed
+    };
+
+    res.json({ success: true, data: stats });
+  } catch (error) {
+    console.error('Get user stats error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch statistics' });
+  }
+});
 
 // Upload avatar
 router.post('/upload-avatar', upload.single('avatar'), async (req, res) => {
@@ -68,19 +90,21 @@ router.get('/profile', async (req, res) => {
 // Update user profile and settings
 router.put('/profile', async (req, res) => {
   try {
-    const { 
-      firstName, lastName, displayName, phone, avatar, 
+    const {
+      firstName, lastName, displayName, phone, avatar,
       department, campus,
       // Student specific
       studentId, semester, cgpa,
       // Faculty specific
       employeeId, designation, officeRoom,
-      // Settings
+      // Preferences
       notificationsEnabled,
       emailNotifications,
       darkMode,
+      twoFactorEnabled,
+      // Privacy
       canMessage,
-      profileVisibility 
+      profileVisibility
     } = req.body;
 
     const update = {};
@@ -112,9 +136,9 @@ router.put('/profile', async (req, res) => {
 
     // Preferences
     addIfDefined('preferences.notificationsEnabled', notificationsEnabled);
-    addIfDefined('preferences.emailNotifications', emailNotifications);
-    addIfDefined('preferences.darkMode', darkMode);
-    addIfDefined('preferences.twoFactor', req.body.twoFactor);
+    addIfDefined('preferences.emailNotifications',   emailNotifications);
+    addIfDefined('preferences.darkMode',             darkMode);
+    addIfDefined('preferences.twoFactorEnabled',     twoFactorEnabled);
 
     // Privacy
     addIfDefined('privacy.canMessage', canMessage);
@@ -125,12 +149,12 @@ router.put('/profile', async (req, res) => {
     }
 
     const user = await User.findByIdAndUpdate(
-      req.user._id, 
-      { $set: update }, 
+      req.user._id,
+      { $set: update },
       { new: true, runValidators: true }
     ).select('-password');
 
-    res.json({ success: true, data: { user } });
+    res.json({ success: true, data: { user } });  // includes preferences & privacy
   } catch (e) {
     console.error('Profile update error:', e);
     res.status(500).json({ success: false, message: 'Failed to update profile' });
@@ -292,6 +316,90 @@ router.get('/archived', async (req, res) => {
   } catch (error) {
     console.error('Get archived error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch archived chats' });
+  }
+});
+
+// ── 2FA Toggle: send verification OTP ──────────────────────────────────────
+router.post('/2fa/send-otp', async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const otpCode  = generateOTP();
+    const expiresAt = generateOTPExpiry(parseInt(process.env.OTP_EXPIRY_MINUTES) || 10);
+
+    await OtpVerification.findOneAndUpdate(
+      { email: user.email, purpose: 'toggle-2fa' },
+      { otpCode, expiresAt, isUsed: false, attempts: 0 },
+      { upsert: true, new: true }
+    );
+
+    const emailResult = await sendOTPEmail(user.email, otpCode, 'login', user.profile.firstName);
+    if (!emailResult.success) {
+      return res.status(500).json({ success: false, message: 'Failed to send verification code' });
+    }
+
+    res.json({ success: true, message: 'Verification code sent to your email' });
+  } catch (err) {
+    console.error('2FA send-otp error:', err);
+    res.status(500).json({ success: false, message: 'Failed to send code' });
+  }
+});
+
+// ── 2FA Toggle: verify OTP and apply the change ────────────────────────────
+router.post('/2fa/toggle', async (req, res) => {
+  try {
+    const { otpCode, enable } = req.body;
+    if (typeof enable !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'enable (boolean) is required' });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const otpRecord = await OtpVerification.findOne({
+      email: user.email, purpose: 'toggle-2fa', isUsed: false
+    });
+
+    if (!otpRecord) {
+      return res.status(400).json({ success: false, message: 'Code not found. Please request a new one.' });
+    }
+    if (otpRecord.expiresAt < new Date()) {
+      await OtpVerification.deleteOne({ _id: otpRecord._id });
+      return res.status(400).json({ success: false, message: 'Code expired. Please request a new one.' });
+    }
+    if (otpRecord.otpCode !== otpCode) {
+      otpRecord.attempts += 1;
+      await otpRecord.save();
+      const maxAttempts = parseInt(process.env.MAX_OTP_ATTEMPTS) || 5;
+      if (otpRecord.attempts >= maxAttempts) {
+        await OtpVerification.deleteOne({ _id: otpRecord._id });
+        return res.status(400).json({ success: false, message: 'Too many failed attempts. Please request a new code.' });
+      }
+      return res.status(400).json({
+        success: false,
+        message: `Invalid code. ${maxAttempts - otpRecord.attempts} attempts remaining.`
+      });
+    }
+
+    // OTP valid — apply the toggle
+    await User.findByIdAndUpdate(req.user._id, {
+      $set: { 'preferences.twoFactorEnabled': enable }
+    });
+
+    otpRecord.isUsed = true;
+    await otpRecord.save();
+
+    console.log(`🔐 2FA ${enable ? 'enabled' : 'disabled'} for: ${user.email}`);
+
+    res.json({
+      success: true,
+      message: `Two-factor authentication ${enable ? 'enabled' : 'disabled'} successfully`,
+      data: { twoFactorEnabled: enable }
+    });
+  } catch (err) {
+    console.error('2FA toggle error:', err);
+    res.status(500).json({ success: false, message: 'Failed to update 2FA setting' });
   }
 });
 

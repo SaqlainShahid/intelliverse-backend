@@ -58,10 +58,46 @@ const ticketSchema = new mongoose.Schema({
   status: {
     type: String,
     enum: {
-      values: ['open', 'in_progress', 'pending_user', 'resolved', 'closed', 'cancelled'],
+      values: [
+        'open', 
+        'in_progress', 
+        'pending_user', 
+        'pending_teacher', // Stage 1 for Attendance
+        'pending_faculty', // Stage 2 for Attendance
+        'pending_hod',     // Stage 3 for Attendance
+        'resolved', 
+        'closed', 
+        'cancelled'
+      ],
       message: 'Invalid status'
     },
     default: 'open'
+  },
+  
+  // Multi-Stage Approval for specialized issues (Attendance, etc.)
+  isAttendanceIssue: {
+    type: Boolean,
+    default: false
+  },
+  approvalChain: {
+    teacherApproval: {
+      status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+      approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      approvedAt: Date,
+      remarks: String
+    },
+    facultyApproval: {
+      status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+      approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      approvedAt: Date,
+      remarks: String
+    },
+    hodApproval: {
+      status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+      approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      approvedAt: Date,
+      remarks: String
+    }
   },
   
   // Assignment and Routing

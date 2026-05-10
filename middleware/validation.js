@@ -284,7 +284,7 @@ const validateTicket = (req, res, next) => {
       .max(10)
       .optional(),
     status: joi.string()
-      .valid('open', 'in_progress', 'pending_user', 'resolved', 'closed', 'cancelled')
+      .valid('open', 'in_progress', 'pending_user', 'pending_teacher', 'pending_faculty', 'pending_hod', 'resolved', 'closed', 'cancelled')
       .optional(),
     assignedTo: joi.string()
       .pattern(/^[0-9a-fA-F]{24}$/)
@@ -380,7 +380,7 @@ module.exports = {
       priority: joi.string().valid('low','medium','high','urgent').optional(),
       department: joi.string().min(2).max(100).optional(),
       tags: joi.array().items(joi.string().max(50)).max(10).optional(),
-      status: joi.string().valid('open','in_progress','pending_user','resolved','closed','cancelled').optional(),
+      status: joi.string().valid('open','in_progress','pending_user','pending_teacher','pending_faculty','pending_hod','resolved','closed','cancelled').optional(),
       assignedTo: joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional()
     });
     const { error } = schema.validate(req.body);

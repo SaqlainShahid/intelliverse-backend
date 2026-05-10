@@ -5,7 +5,6 @@ const departmentSchema = new mongoose.Schema({
     type: String,
     required: true,
     unique: true,
-    enum: ['IT', 'Finance', 'Exams', 'Admissions', 'Hostel', 'Library', 'Career', 'Other'],
     trim: true
   },
   admins: [{

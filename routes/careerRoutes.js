@@ -27,15 +27,15 @@ router.get('/chat/history', authenticate, authorize('student'), getChatHistory);
 router.delete('/chat/history', authenticate, authorize('student'), clearChatHistory);
 router.post('/resume/improve', authenticate, authorize('student'), improveResume);
 
-router.post('/internships', authenticate, authorize('admin','faculty'), createInternship);
-router.put('/internships/:id', authenticate, authorize('admin','faculty'), updateInternship);
-router.delete('/internships/:id', authenticate, authorize('admin','faculty'), deleteInternship);
-router.get('/internships/manage', authenticate, authorize('admin','faculty'), listManageInternships);
-router.patch('/internships/:id/status', authenticate, authorize('admin','faculty'), changeInternshipStatus);
+router.post('/internships', authenticate, authorize('admin','faculty','hod'), createInternship);
+router.put('/internships/:id', authenticate, authorize('admin','faculty','hod'), updateInternship);
+router.delete('/internships/:id', authenticate, authorize('admin','faculty','hod'), deleteInternship);
+router.get('/internships/manage', authenticate, authorize('admin','faculty','hod'), listManageInternships);
+router.patch('/internships/:id/status', authenticate, authorize('admin','faculty','hod'), changeInternshipStatus);
 
 router.post('/internships/:id/apply', authenticate, authorize('student'), applyInternship);
-router.get('/applications', authenticate, authorize('admin','faculty'), listApplications);
-router.patch('/applications/:id', authenticate, authorize('admin','faculty'), updateApplication);
+router.get('/applications', authenticate, authorize('admin','faculty','hod'), listApplications);
+router.patch('/applications/:id', authenticate, authorize('admin','faculty','hod'), updateApplication);
 router.get('/applications/my', authenticate, authorize('student'), listMyApplications);
 
 module.exports = router;

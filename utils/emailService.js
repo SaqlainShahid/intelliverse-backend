@@ -64,7 +64,7 @@ const getSignupEmailTemplate = (otpCode, firstName) => {
       </div>
       
       <div style="text-align: center; margin-top: 20px; color: #666; font-size: 14px;">
-        <p>&copy; 2025 IntelliVerse - Air University Islamabad</p>
+        <p>&copy; 2026 Intelliverse - Air University Islamabad</p>
         <p>This is an automated message, please do not reply.</p>
       </div>
     </body>
@@ -106,7 +106,7 @@ const getLoginEmailTemplate = (otpCode, firstName) => {
       </div>
       
       <div style="text-align: center; margin-top: 20px; color: #666; font-size: 14px;">
-        <p>&copy; 2025 IntelliVerse - Air University Islamabad</p>
+        <p>&copy; 2026 Intelliverse - Air University Islamabad</p>
         <p>This is an automated message, please do not reply.</p>
       </div>
     </body>
@@ -169,7 +169,7 @@ const getForgotPasswordEmailTemplate = (otpCode, firstName) => {
 const sendOTPEmail = async (email, otpCode, purpose, firstName = 'User') => {
   try {
     let subject, htmlContent;
-    
+
     switch (purpose) {
       case 'signup':
         subject = '🎓 Welcome to IntelliVerse - Verify Your Account';
@@ -185,8 +185,8 @@ const sendOTPEmail = async (email, otpCode, purpose, firstName = 'User') => {
         break;
       default:
         // Fallback to your existing template
-        subject = purpose === 'signup' ? 
-          'Welcome to IntelliVerse - Verify Your Account' : 
+        subject = purpose === 'signup' ?
+          'Welcome to IntelliVerse - Verify Your Account' :
           'IntelliVerse Login Verification';
         htmlContent = `
           <!DOCTYPE html>
@@ -229,7 +229,7 @@ const sendOTPEmail = async (email, otpCode, purpose, firstName = 'User') => {
                 <p>Welcome to the future of campus life! 🚀</p>
               </div>
               <div class="footer">
-                <p>&copy; 2025 IntelliVerse - Air University Islamabad</p>
+                <p>&copy; 2026 Intelliverse - Air University Islamabad</p>
                 <p>This is an automated message, please do not reply.</p>
               </div>
             </div>
@@ -237,24 +237,24 @@ const sendOTPEmail = async (email, otpCode, purpose, firstName = 'User') => {
           </html>
         `;
     }
-    
+
     const mailOptions = {
       from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
       to: email,
       subject: subject,
       html: htmlContent
     };
-    
+
     await transporter.sendMail(mailOptions);
-    
+
     console.log(`✅ ${purpose} email sent successfully to: ${email}`);
     return { success: true };
-    
+
   } catch (error) {
     console.error(`❌ Email sending failed for ${purpose}:`, error);
-    return { 
-      success: false, 
-      error: error.message 
+    return {
+      success: false,
+      error: error.message
     };
   }
 };
@@ -314,7 +314,7 @@ const getItemFoundEmailTemplate = (ownerName, itemName, itemDescription, locatio
       </div>
       
       <div style="text-align: center; margin-top: 20px; color: #666; font-size: 14px;">
-        <p>&copy; 2025 IntelliVerse - Air University Islamabad</p>
+        <p>&copy; 2026 Intelliverse - Air University Islamabad</p>
         <p>This is an automated message, please do not reply.</p>
       </div>
     </body>
@@ -335,24 +335,24 @@ const sendItemFoundNotification = async (ownerEmail, itemDetails, finderDetails)
       finderDetails.email,
       finderDetails.phone || 'Not provided'
     );
-    
+
     const mailOptions = {
       from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
       to: ownerEmail,
       subject: subject,
       html: htmlContent
     };
-    
+
     await transporter.sendMail(mailOptions);
-    
+
     console.log(`✅ Item found notification email sent successfully to: ${ownerEmail}`);
     return { success: true };
-    
+
   } catch (error) {
     console.error(`❌ Item found email sending failed:`, error);
-    return { 
-      success: false, 
-      error: error.message 
+    return {
+      success: false,
+      error: error.message
     };
   }
 };
@@ -515,7 +515,7 @@ const sendTicketNotification = async (type, ticket) => {
   try {
     // Determine recipients based on notification type
     let recipients = [];
-    
+
     switch (type) {
       case 'new_ticket':
         // Notify admins and faculty
@@ -525,7 +525,7 @@ const sendTicketNotification = async (type, ticket) => {
         }).select('email profile.firstName profile.lastName');
         recipients = adminsAndFaculty;
         break;
-        
+
       case 'status_update':
       case 'new_comment':
         // Notify ticket reporter and assigned staff
@@ -534,7 +534,7 @@ const sendTicketNotification = async (type, ticket) => {
           recipients.push(ticket.assignedTo);
         }
         break;
-        
+
       case 'assignment':
         // Notify assigned staff member
         if (ticket.assignedTo) {
@@ -546,7 +546,7 @@ const sendTicketNotification = async (type, ticket) => {
     // Send emails to all recipients
     const emailPromises = recipients.map(async (recipient) => {
       const emailTemplate = getTicketNotificationTemplate(type, ticket, recipient);
-      
+
       const mailOptions = {
         from: `"IntelliVerse HelpDesk" <${process.env.EMAIL_USER}>`,
         to: recipient.email,
@@ -558,29 +558,206 @@ const sendTicketNotification = async (type, ticket) => {
     });
 
     await Promise.all(emailPromises);
-    
+
     console.log(`✅ Ticket notification sent successfully for ${type} - ${ticket.ticketNumber}`);
-    return { 
-      success: true, 
-      message: 'Ticket notification sent successfully' 
+    return {
+      success: true,
+      message: 'Ticket notification sent successfully'
     };
-    
+
   } catch (error) {
     console.error(`❌ Ticket notification sending failed:`, error);
-    return { 
-      success: false, 
-      error: error.message 
+    return {
+      success: false,
+      error: error.message
     };
   }
 };
 
 // Update module.exports to include new functions
+// Classroom notification template
+const getClassroomNotificationTemplate = (type, classroom, data, teacher) => {
+  const isAssignment = type === 'assignment';
+  const isMaterial = type === 'material';
+  const themeColor = isAssignment ? '#F59E0B' : (isMaterial ? '#10B981' : '#4F46E5');
+  const title = isAssignment ? '📝 New Assignment Posted' : (isMaterial ? '📚 New Material Uploaded' : '📢 New Class Announcement');
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${title}</title>
+    </head>
+    <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #1f2937; background: #f8fafc; margin: 0; padding: 20px;">
+      <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.05); border: 1px solid #e5e7eb;">
+        <div style="background: ${themeColor}; color: white; padding: 32px; text-align: center;">
+          <h1 style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.025em;">${title}</h1>
+          <p style="margin: 8px 0 0 0; opacity: 0.9; font-size: 14px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">${classroom.name} • Section ${classroom.section}</p>
+        </div>
+        
+        <div style="padding: 40px;">
+          <div style="display: flex; align-items: center; margin-bottom: 24px;">
+            <div style="width: 48px; height: 48px; background: #f3f4f6; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 800; color: ${themeColor}; margin-right: 16px; font-size: 20px;">
+              ${teacher.profile.firstName.charAt(0)}
+            </div>
+            <div>
+              <p style="margin: 0; font-weight: 700; color: #111827; font-size: 16px;">${teacher.profile.firstName} ${teacher.profile.lastName}</p>
+              <p style="margin: 0; color: #6b7280; font-size: 12px; text-transform: uppercase; letter-spacing: 0.025em; font-weight: 600;">${teacher.profile.designation || 'Teacher'}</p>
+            </div>
+          </div>
+
+          <div style="background: #f9fafb; border-radius: 12px; padding: 24px; border: 1px solid #f3f4f6; margin-bottom: 32px;">
+            ${isAssignment ? `
+              <h2 style="margin: 0 0 12px 0; color: #111827; font-size: 18px; font-weight: 800;">${data.title}</h2>
+              <p style="margin: 0 0 20px 0; color: #4b5563; font-size: 14px; line-height: 1.6;">${data.description || 'No instructions provided.'}</p>
+              <div style="display: flex; gap: 20px;">
+                <div style="flex: 1;">
+                  <p style="margin: 0; font-size: 10px; text-transform: uppercase; font-weight: 700; color: #9ca3af; letter-spacing: 0.05em;">Due Date</p>
+                  <p style="margin: 4px 0 0 0; font-weight: 700; color: #ef4444; font-size: 14px;">${new Date(data.dueDate).toLocaleDateString()}</p>
+                </div>
+                <div style="flex: 1;">
+                  <p style="margin: 0; font-size: 10px; text-transform: uppercase; font-weight: 700; color: #9ca3af; letter-spacing: 0.05em;">Max Points</p>
+                  <p style="margin: 4px 0 0 0; font-weight: 700; color: #111827; font-size: 14px;">${data.maxPoints} pts</p>
+                </div>
+              </div>
+            ` : isMaterial ? `
+              <h2 style="margin: 0 0 12px 0; color: #111827; font-size: 18px; font-weight: 800;">${data.title}</h2>
+              <p style="margin: 0; color: #4b5563; font-size: 14px; line-height: 1.6;">${data.description || 'New lecture material has been uploaded to the classroom hub.'}</p>
+            ` : `
+              <p style="margin: 0; color: #4b5563; font-size: 15px; line-height: 1.7; white-space: pre-wrap;">${data.content}</p>
+            `}
+          </div>
+
+          <div style="text-align: center;">
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/classroom/${classroom._id}" 
+               style="display: inline-block; background: ${themeColor}; color: white; padding: 16px 32px; border-radius: 12px; text-decoration: none; font-weight: 700; font-size: 14px; box-shadow: 0 4px 12px ${themeColor}33; transition: transform 0.2s;">
+              Open Classroom Hub
+            </a>
+          </div>
+        </div>
+
+        <div style="padding: 24px; background: #f8fafc; border-top: 1px solid #f1f5f9; text-align: center; color: #94a3b8; font-size: 12px; font-weight: 500;">
+          <p style="margin: 0;">&copy; 2026 Intelliverse Smart Campus - Air University</p>
+          <p style="margin: 4px 0 0 0;">This is an automated academic notification.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+const sendClassroomNotification = async (type, classroom, data) => {
+  try {
+    const ClassroomModel = require('../models/Classroom');
+    const fullClass = await ClassroomModel.findById(classroom._id)
+      .populate('students', 'email profile.firstName')
+      .populate('faculty', 'profile.firstName profile.lastName profile.designation');
+
+    if (!fullClass || !fullClass.students.length) return { success: false, message: 'No students to notify' };
+
+    const teacher = fullClass.faculty;
+    const recipients = fullClass.students.map(s => s.email);
+
+    const emailTemplate = getClassroomNotificationTemplate(type, fullClass, data, teacher);
+    const subject = type === 'assignment' ? `📝 New Assignment: ${data.title}` : (type === 'material' ? `📚 New Material: ${data.title}` : `📢 New Announcement in ${fullClass.name}`);
+
+    const mailOptions = {
+      from: `"IntelliVerse Classroom" <${process.env.EMAIL_USER}>`,
+      bcc: recipients, // Use BCC for privacy and efficiency
+      subject: subject,
+      html: emailTemplate
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Classroom ${type} notification sent to ${recipients.length} students`);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Classroom notification failed:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+const getHODActionEmailTemplate = (hodName, department, actionType, message, targetName) => {
+  const titles = {
+    'warning': '⚠️ Official Warning',
+    'meeting': '📅 Meeting Request',
+    'rule-break': '🚫 Rule Violation Notice',
+    'revoke': '🛑 Access Revoked'
+  };
+  const title = titles[actionType] || 'Academic Notification';
+  const themeColor = (actionType === 'rule-break' || actionType === 'revoke') ? '#ef4444' : (actionType === 'meeting' ? '#4f46e5' : '#f59e0b');
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${title}</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; background: #f8fafc; margin: 0; padding: 20px;">
+      <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e5e7eb;">
+        <div style="background: ${themeColor}; color: white; padding: 30px; text-align: center;">
+          <h1 style="margin: 0; font-size: 24px; font-weight: 800;">${title}</h1>
+          <p style="margin: 8px 0 0 0; opacity: 0.9; font-size: 14px; font-weight: 600;">Department of ${department}</p>
+        </div>
+        
+        <div style="padding: 40px;">
+          <p style="font-size: 16px; font-weight: 700; color: #111827; margin-bottom: 24px;">Hello ${targetName},</p>
+          
+          <div style="background: #f9fafb; border-radius: 12px; padding: 24px; border: 1px solid #f3f4f6; margin-bottom: 32px;">
+            <p style="margin: 0; color: #374151; font-size: 15px; line-height: 1.7; white-space: pre-wrap;">${message}</p>
+          </div>
+
+          <div style="border-top: 1px solid #f1f5f9; pt: 24px; margin-top: 32px;">
+             <p style="margin: 0; font-weight: 700; color: #111827; font-size: 14px;">Regards,</p>
+             <p style="margin: 4px 0 0 0; color: #4f46e5; font-weight: 800; font-size: 16px;">${hodName}</p>
+             <p style="margin: 0; color: #6b7280; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Head of Department</p>
+          </div>
+        </div>
+
+        <div style="padding: 24px; background: #f8fafc; border-top: 1px solid #f1f5f9; text-align: center; color: #94a3b8; font-size: 11px;">
+          <p style="margin: 0;">&copy; 2026 Intelliverse - Air University</p>
+          <p style="margin: 4px 0 0 0;">This is an official departmental communication.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
+const sendHODActionEmail = async (targetEmail, targetName, hodName, department, actionType, message) => {
+  try {
+    const emailTemplate = getHODActionEmailTemplate(hodName, department, actionType, message, targetName);
+    const subject = actionType === 'meeting' ? `Meeting Request: HOD ${department}` : `Official Notification: Department of ${department}`;
+
+    const mailOptions = {
+      from: `"Department of ${department}" <${process.env.EMAIL_USER}>`,
+      to: targetEmail,
+      subject: subject,
+      html: emailTemplate
+    };
+
+    await transporter.sendMail(mailOptions);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ HOD Action email failed:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 module.exports = {
   sendOTPEmail,
   verifyEmailConfig,
   getForgotPasswordEmailTemplate,
   getSignupEmailTemplate,
   getLoginEmailTemplate,
+  sendItemFoundNotification,
+  sendTicketNotification,
+  sendClassroomNotification,
+  sendHODActionEmail,
   getCareerPostingAnnouncementTemplate: (opportunity) => {
     const safe = opportunity || {};
     const deadline = safe.deadline ? new Date(safe.deadline).toLocaleDateString() : 'N/A';
@@ -634,7 +811,7 @@ module.exports = {
             ${safe.applyLink ? `<p><a class="cta" href="${fixApplyLink(safe.applyLink)}" target="_blank" rel="noreferrer">Apply Now</a></p>` : ''}
           </div>
           <div class="footer">
-            <p>&copy; 2025 IntelliVerse - Air University Islamabad</p>
+            <p>&copy; 2026 Intelliverse - Air University Islamabad</p>
             <p>This is an automated message, please do not reply.</p>
           </div>
         </div>
@@ -689,7 +866,7 @@ module.exports = {
             ${safe.applyLink && status !== 'rejected' ? `<p><a class="cta" href="${fixApplyLink(safe.applyLink)}" target="_blank" rel="noreferrer">View Details</a></p>` : ''}
           </div>
           <div class="footer">
-            <p>&copy; 2025 IntelliVerse - Air University Islamabad</p>
+            <p>&copy; 2026 Intelliverse - Air University Islamabad</p>
             <p>This is an automated message, please do not reply.</p>
           </div>
         </div>
@@ -752,7 +929,7 @@ module.exports = {
             ${safe.applyLink ? `<p><a class="cta" href="${fixApplyLink(safe.applyLink)}" target="_blank" rel="noreferrer">View Opportunity</a></p>` : ''}
           </div>
           <div class="footer">
-            <p>&copy; 2025 IntelliVerse - Air University Islamabad</p>
+            <p>&copy; 2026 Intelliverse - Air University Islamabad</p>
             <p>This is an automated message, please do not reply.</p>
           </div>
         </div>
@@ -764,6 +941,361 @@ module.exports = {
   sendItemFoundNotification,
   getTicketNotificationTemplate,
   sendTicketNotification,
+
+  getHodAssignmentEmailTemplate: (firstName, department, contact) => {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Congratulations - HOD Appointment</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 28px;">🎉 Congratulations!</h1>
+          <p style="margin: 10px 0 0 0; font-size: 16px;">You have been appointed as HOD</p>
+        </div>
+        
+        <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px;">
+          <h2 style="color: #333; margin-bottom: 20px;">Dear ${firstName},</h2>
+          
+          <p style="margin-bottom: 15px;">We are delighted to inform you that you have been appointed as the <strong>Head of Department (HOD)</strong> for the <strong>${department}</strong> department at Air University Islamabad.</p>
+          
+          <div style="background: #E0E7FF; border-left: 4px solid #4F46E5; padding: 20px; margin: 20px 0; border-radius: 4px;">
+            <p style="margin: 0 0 10px 0;"><strong>🎓 Your New Role:</strong></p>
+            <p style="margin: 0; color: #4F46E5;"><strong>Head of Department - ${department}</strong></p>
+          </div>
+          
+          <p style="margin-bottom: 15px;">As HOD, you will have the following responsibilities:</p>
+          <ul style="margin-bottom: 20px; padding-left: 20px;">
+            <li>Approve or reject pending faculty registrations</li>
+            <li>Manage department resources and academics</li>
+            <li>Oversee student and faculty activities</li>
+            <li>Maintain departmental standards and policies</li>
+          </ul>
+          
+          <div style="background: #FEF3C7; border: 1px solid #FCD34D; padding: 15px; border-radius: 4px; margin: 20px 0;">
+            <p style="margin: 0; color: #92400E;"><strong>📧 Support Contact:</strong> For any questions or support, please contact ${contact || 'the administration'}</p>
+          </div>
+          
+          <p style="margin-top: 20px;">Welcome aboard! We look forward to your excellent leadership.</p>
+          
+          <p style="margin-top: 30px; color: #666; font-size: 14px; border-top: 1px solid #ddd; padding-top: 20px;">
+            Best regards,<br>
+            <strong>IntelliVerse Administration</strong><br>
+            Air University Islamabad
+          </p>
+        </div>
+        
+        <div style="text-align: center; margin-top: 20px; color: #666; font-size: 12px;">
+          <p>&copy; 2026 Intelliverse - Air University Islamabad</p>
+          <p>This is an automated message, please do not reply.</p>
+        </div>
+      </body>
+      </html>
+    `;
+  },
+
+  getEventClubManagerAssignmentEmailTemplate: (firstName, contact) => {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Congratulations - Event & Club Manager Appointment</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 28px;">🎉 Congratulations!</h1>
+          <p style="margin: 10px 0 0 0; font-size: 16px;">You have been appointed as Event & Club Manager</p>
+        </div>
+        
+        <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px;">
+          <h2 style="color: #333; margin-bottom: 20px;">Dear ${firstName},</h2>
+          
+          <p style="margin-bottom: 15px;">We are pleased to inform you that you have been appointed as the <strong>Event & Club Manager</strong> at Air University Islamabad.</p>
+          
+          <div style="background: #E0E7FF; border-left: 4px solid #4F46E5; padding: 20px; margin: 20px 0; border-radius: 4px;">
+            <p style="margin: 0 0 10px 0;"><strong>🎓 Your New Responsibilities:</strong></p>
+            <ul style="margin: 0; padding-left: 20px;">
+              <li>Review and approve pending event requests</li>
+              <li>Review and approve pending club registration and activity requests</li>
+              <li>Ensure events and clubs align with university policies</li>
+              <li>Coordinate with departments and organizers for smooth execution</li>
+            </ul>
+          </div>
+          
+          <p style="margin-bottom: 15px;">Your role is central to managing all campus events and clubs within IntelliVerse. All event and club approvals will now be routed to your IntelliVerse account for review.</p>
+          
+          <p style="margin-bottom: 15px;">You can access your dashboard anytime to review:</p>
+          <ul style="margin-bottom: 20px; padding-left: 20px;">
+            <li>Pending events and their details</li>
+            <li>Pending club approvals and updates</li>
+            <li>Event and club history across the campus</li>
+          </ul>
+          
+          <p style="margin-bottom: 20px;">If you have any questions or require assistance, please contact ${contact}.</p>
+          
+          <p style="margin-bottom: 0;">Once again, congratulations on your new responsibility and thank you for contributing to the IntelliVerse Smart Campus ecosystem.</p>
+        </div>
+        
+        <div style="text-align: center; margin-top: 20px; color: #666; font-size: 12px;">
+          <p>&copy; 2026 Intelliverse - Air University Islamabad</p>
+          <p>This is an automated message, please do not reply.</p>
+        </div>
+      </body>
+      </html>
+    `;
+  },
+
+  sendEventClubManagerAssignmentEmail: async (email, firstName, contact) => {
+    try {
+      const html = module.exports.getEventClubManagerAssignmentEmailTemplate(firstName, contact);
+      const mailOptions = {
+        from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+        to: email,
+        subject: '🎉 Congratulations! You have been appointed as Event & Club Manager',
+        html
+      };
+      const result = await transporter.sendMail(mailOptions);
+      return { success: true, messageId: result.messageId };
+    } catch (error) {
+      console.error('Error sending Event & Club Manager assignment email:', error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  // Faculty Approval Email Template
+  getFacultyApprovalEmailTemplate: (firstName, department, hodName) => {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Faculty Approval - Congratulations!</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background: linear-gradient(135deg, #10B981 0%, #059669 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 28px;">🎉 Congratulations!</h1>
+          <p style="margin: 10px 0 0 0; font-size: 16px;">Your Registration Has Been Approved</p>
+        </div>
+        
+        <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px;">
+          <h2 style="color: #333; margin-bottom: 20px;">Dear ${firstName},</h2>
+          
+          <p style="margin-bottom: 15px;">We are pleased to inform you that your faculty registration for the <strong>${department}</strong> department has been <strong style="color: #10B981;">approved</strong> by your HOD.</p>
+          
+          <div style="background: #D1FAE5; border-left: 4px solid #10B981; padding: 20px; margin: 20px 0; border-radius: 4px;">
+            <p style="margin: 0 0 10px 0;"><strong>✅ Registration Status:</strong></p>
+            <p style="margin: 0; color: #059669; font-size: 18px;"><strong>APPROVED</strong></p>
+          </div>
+          
+          <p style="margin-bottom: 15px;">You now have full access to the IntelliVerse platform with the following capabilities:</p>
+          <ul style="margin-bottom: 20px; padding-left: 20px;">
+            <li>Access to all faculty dashboard features</li>
+            <li>Communication with students and staff</li>
+            <li>Resource management tools</li>
+            <li>Department collaboration features</li>
+          </ul>
+          
+          <div style="background: #E0E7FF; border: 1px solid #6366F1; padding: 15px; border-radius: 4px; margin: 20px 0;">
+            <p style="margin: 0; color: #4338CA;"><strong>👤 Approved By:</strong> ${hodName} (HOD - ${department})</p>
+          </div>
+          
+          <p style="margin-top: 20px;">You can now log in to your account and start using all available features.</p>
+          
+          <p style="margin-top: 30px; color: #666; font-size: 14px; border-top: 1px solid #ddd; padding-top: 20px;">
+            Best regards,<br>
+            <strong>IntelliVerse Administration</strong><br>
+            Air University Islamabad
+          </p>
+        </div>
+        
+        <div style="text-align: center; margin-top: 20px; color: #666; font-size: 12px;">
+          <p>&copy; 2026 Intelliverse - Air University Islamabad</p>
+          <p>This is an automated message, please do not reply.</p>
+        </div>
+      </body>
+      </html>
+    `;
+  },
+
+  // Faculty Rejection Email Template
+  getFacultyRejectionEmailTemplate: (firstName, department, hodName, reason) => {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Faculty Registration Update</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 28px;">📋 Registration Update</h1>
+          <p style="margin: 10px 0 0 0; font-size: 16px;">Important Notice</p>
+        </div>
+        
+        <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px;">
+          <h2 style="color: #333; margin-bottom: 20px;">Dear ${firstName},</h2>
+          
+          <p style="margin-bottom: 15px;">We regret to inform you that your faculty registration for the <strong>${department}</strong> department has not been approved at this time.</p>
+          
+          <div style="background: #FEE2E2; border-left: 4px solid #DC2626; padding: 20px; margin: 20px 0; border-radius: 4px;">
+            <p style="margin: 0 0 10px 0;"><strong>⚠️ Registration Status:</strong></p>
+            <p style="margin: 0; color: #DC2626; font-size: 18px;"><strong>NOT APPROVED</strong></p>
+          </div>
+          
+          <div style="background: #FEF3C7; border: 1px solid #F59E0B; padding: 20px; margin: 20px 0; border-radius: 4px;">
+            <p style="margin: 0 0 10px 0; color: #92400E;"><strong>📝 Reason:</strong></p>
+            <p style="margin: 0; color: #78350F;">${reason || 'No specific reason provided'}</p>
+          </div>
+          
+          <p style="margin-bottom: 15px;">If you believe this decision was made in error or would like further clarification, please contact your department HOD or the administration office.</p>
+          
+          <div style="background: #E0E7FF; border: 1px solid #6366F1; padding: 15px; border-radius: 4px; margin: 20px 0;">
+            <p style="margin: 0; color: #4338CA;"><strong>👤 Reviewed By:</strong> ${hodName} (HOD - ${department})</p>
+          </div>
+          
+          <p style="margin-top: 20px;">You may reapply for registration after addressing the concerns mentioned above.</p>
+          
+          <p style="margin-top: 30px; color: #666; font-size: 14px; border-top: 1px solid #ddd; padding-top: 20px;">
+            Best regards,<br>
+            <strong>IntelliVerse Administration</strong><br>
+            Air University Islamabad
+          </p>
+        </div>
+        
+        <div style="text-align: center; margin-top: 20px; color: #666; font-size: 12px;">
+          <p>&copy; 2026 Intelliverse - Air University Islamabad</p>
+          <p>This is an automated message, please do not reply.</p>
+        </div>
+      </body>
+      </html>
+    `;
+  },
+
+  // HOD Removal Email Template
+  getHodRemovalEmailTemplate: (firstName, department) => {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>HOD Role Update</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 28px;">📋 Role Update</h1>
+          <p style="margin: 10px 0 0 0; font-size: 16px;">HOD Position Update</p>
+        </div>
+        
+        <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px;">
+          <h2 style="color: #333; margin-bottom: 20px;">Dear ${firstName},</h2>
+          
+          <p style="margin-bottom: 15px;">We are writing to inform you that your role as <strong>Head of Department (HOD)</strong> for the <strong>${department}</strong> department has been updated.</p>
+          
+          <div style="background: #FEE2E2; border-left: 4px solid #DC2626; padding: 20px; margin: 20px 0; border-radius: 4px;">
+            <p style="margin: 0 0 10px 0;"><strong>⚠️ Role Change:</strong></p>
+            <p style="margin: 0; color: #DC2626;"><strong>HOD Position Removed from ${department}</strong></p>
+          </div>
+          
+          <p style="margin-bottom: 15px;">Your responsibilities as HOD have been transferred. You will no longer have access to HOD-specific management features in the system.</p>
+          
+          <p style="margin-bottom: 15px;">If you have any questions regarding this change or need to transfer any pending approvals, please contact the administration immediately.</p>
+          
+          <p style="margin-top: 30px; color: #666; font-size: 14px; border-top: 1px solid #ddd; padding-top: 20px;">
+            Best regards,<br>
+            <strong>IntelliVerse Administration</strong><br>
+            Air University Islamabad
+          </p>
+        </div>
+        
+        <div style="text-align: center; margin-top: 20px; color: #666; font-size: 12px;">
+          <p>&copy; 2026 Intelliverse - Air University Islamabad</p>
+          <p>This is an automated message, please do not reply.</p>
+        </div>
+      </body>
+      </html>
+    `;
+  },
+
+  // Send HOD Assignment Email
+  sendHodAssignmentEmail: async (email, firstName, department, contact) => {
+    try {
+      const html = module.exports.getHodAssignmentEmailTemplate(firstName, department, contact);
+      const mailOptions = {
+        from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+        to: email,
+        subject: `🎉 Congratulations! You have been appointed as HOD - ${department}`,
+        html
+      };
+      const result = await transporter.sendMail(mailOptions);
+      return { success: true, messageId: result.messageId };
+    } catch (error) {
+      console.error('Error sending HOD assignment email:', error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  // Send HOD Removal Email
+  sendHodRemovalEmail: async (email, firstName, department) => {
+    try {
+      const html = module.exports.getHodRemovalEmailTemplate(firstName, department);
+      const mailOptions = {
+        from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+        to: email,
+        subject: `Role Update: HOD Position Removed - ${department}`,
+        html
+      };
+      const result = await transporter.sendMail(mailOptions);
+      return { success: true, messageId: result.messageId };
+    } catch (error) {
+      console.error('Error sending HOD removal email:', error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  // Send Faculty Approval Email
+  sendFacultyApprovalEmail: async (email, firstName, department, hodName) => {
+    try {
+      const html = module.exports.getFacultyApprovalEmailTemplate(firstName, department, hodName);
+      const mailOptions = {
+        from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+        to: email,
+        subject: `🎉 Congratulations! Faculty Registration Approved - ${department}`,
+        html
+      };
+      const result = await transporter.sendMail(mailOptions);
+      return { success: true, messageId: result.messageId };
+    } catch (error) {
+      console.error('Error sending faculty approval email:', error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  // Send Faculty Rejection Email
+  sendFacultyRejectionEmail: async (email, firstName, department, hodName, reason) => {
+    try {
+      const html = module.exports.getFacultyRejectionEmailTemplate(firstName, department, hodName, reason);
+      const mailOptions = {
+        from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+        to: email,
+        subject: `Registration Update - ${department} Department`,
+        html
+      };
+      const result = await transporter.sendMail(mailOptions);
+      return { success: true, messageId: result.messageId };
+    } catch (error) {
+      console.error('Error sending faculty rejection email:', error);
+      return { success: false, error: error.message };
+    }
+  },
+
   sendEmail: async (to, subject, html) => {
     try {
       const mailOptions = {
@@ -777,5 +1309,6 @@ module.exports = {
     } catch (error) {
       return { success: false, error: error.message };
     }
-  }
+  },
+  sendClassroomNotification
 };
