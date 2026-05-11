@@ -28,8 +28,11 @@ const resolveUserDepartment = async (user) => {
   } catch { return null; }
 };
 
-// 1. POST /api/ai/query - Main Chat Interface
+// 1. POST /api/ai/query - Main Chat Interface (students only)
 router.post('/query', authenticate, async (req, res) => {
+  if (req.user.role !== 'student') {
+    return res.status(403).json({ success: false, message: 'Only students can submit queries. Faculty and staff can supervise from the Department Dashboard.' });
+  }
   try {
     const { message } = req.body;
     if (!message) return res.status(400).json({ success: false, message: 'Message is required' });
