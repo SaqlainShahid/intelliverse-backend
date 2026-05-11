@@ -82,6 +82,29 @@ router.get('/admin/stats', authenticate, (req, res, next) => {
   next();
 }, authController.getAdminStats);
 
+// Update faculty designation (admin only)
+router.put('/admin/users/:userId/designation', authenticate, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ success: false, message: 'Access denied' });
+  }
+  try {
+    const { designation } = req.body;
+    if (typeof designation !== 'string') {
+      return res.status(400).json({ success: false, message: 'designation must be a string' });
+    }
+    const User = require('../models/User');
+    const updated = await User.findByIdAndUpdate(
+      req.params.userId,
+      { 'profile.designation': designation.trim() },
+      { new: true }
+    ).select('profile.firstName profile.lastName profile.designation');
+    if (!updated) return res.status(404).json({ success: false, message: 'User not found' });
+    res.json({ success: true, data: updated });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
 // Health Check Route
 router.get('/health', (req, res) => {
   res.status(200).json({
