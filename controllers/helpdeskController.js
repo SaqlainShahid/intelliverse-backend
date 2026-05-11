@@ -100,8 +100,9 @@ const getTicketById = async (req, res) => {
     }
 
     // Check permissions
-    if (req.user.role !== 'admin' && 
-        req.user.role !== 'faculty' && 
+    if (req.user.role !== 'admin' &&
+        req.user.role !== 'faculty' &&
+        req.user.role !== 'hod' &&
         ticket.reportedBy._id.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
