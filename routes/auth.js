@@ -69,7 +69,7 @@ router.get('/me', authenticate, authController.getCurrentUser);
 
 // Admin/Faculty utilities
 router.get('/admin/users', authenticate, (req, res, next) => {
-  if (req.user.role !== 'admin' && req.user.role !== 'faculty') {
+  if (!['admin', 'faculty', 'hod'].includes(req.user.role)) {
     return res.status(403).json({ success: false, message: 'Access denied' });
   }
   next();
