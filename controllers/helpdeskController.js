@@ -264,8 +264,8 @@ const updateTicket = async (req, res) => {
       // If it's an attendance issue, handle transitions & enforce hierarchy
       if (ticket.isAttendanceIssue) {
         const userDesignation = req.user.profile?.designation?.toLowerCase() || '';
-        const teachingKeywords = ['teacher', 'lecturer', 'professor', 'instructor', 'visiting', 'lab engineer'];
-        const isTeachingRole = teachingKeywords.some(keyword => userDesignation.includes(keyword)) || (!userDesignation.includes('coordinator') && !userDesignation.includes('manager'));
+        const teachingKeywords = ['teacher', 'lecturer', 'leacturer', 'professor', 'prof', 'instructor', 'visiting', 'lab engineer'];
+        const isTeachingRole = teachingKeywords.some(keyword => userDesignation.includes(keyword));
 
         // Guard: Prevent skipping stages or resolving prematurely
         if (updates.status === 'pending_faculty') {
