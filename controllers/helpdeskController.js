@@ -342,17 +342,43 @@ const updateTicket = async (req, res) => {
       }
       try {
         const docs = [];
-        const title = `Ticket ${updatedTicket.ticketNumber} ${updates.status.replace('_', ' ')}`;
+
+        // Build notification title/message based on transition
+        let notifTitle, notifMessage;
+        if (ticket.isAttendanceIssue) {
+          const approverName = `${req.user.profile?.firstName || ''} ${req.user.profile?.lastName || ''}`.trim();
+          if (updates.status === 'pending_faculty') {
+            notifTitle = `✅ Attendance Request Approved by Teacher`;
+            notifMessage = `${approverName} (Teacher) has approved your attendance request for "${updatedTicket.title}". Now awaiting Faculty Coordinator review.`;
+          } else if (updates.status === 'pending_hod') {
+            notifTitle = `✅ Attendance Request Approved by Faculty Coordinator`;
+            notifMessage = `${approverName} (Faculty Coordinator) has approved your attendance request for "${updatedTicket.title}". Now awaiting HOD final approval.`;
+          } else if (updates.status === 'resolved') {
+            notifTitle = `🎉 Attendance Request Fully Approved`;
+            notifMessage = `${approverName} (HOD) has given final approval for your attendance request "${updatedTicket.title}". Your issue is now resolved.`;
+          } else {
+            notifTitle = `Ticket ${updatedTicket.ticketNumber} updated`;
+            notifMessage = updatedTicket.title;
+          }
+        } else {
+          notifTitle = `Ticket ${updatedTicket.ticketNumber} ${updates.status.replace(/_/g, ' ')}`;
+          notifMessage = updatedTicket.title;
+        }
+
+        // Always notify the reporter
         const prefReporter = await User.findById(updatedTicket.reportedBy._id).select('preferences.notificationsEnabled').lean();
         if (prefReporter?.preferences?.notificationsEnabled !== false) {
-          docs.push({ user: updatedTicket.reportedBy._id, type: 'helpdesk_status_update', title, message: updatedTicket.title, data: { ticketId: updatedTicket._id, status: updates.status } });
+          docs.push({ user: updatedTicket.reportedBy._id, type: 'helpdesk_status_update', title: notifTitle, message: notifMessage, data: { ticketId: updatedTicket._id, status: updates.status } });
         }
+
+        // Also notify assignee if different from reporter
         if (updatedTicket.assignedTo && updatedTicket.assignedTo._id && updatedTicket.assignedTo._id.toString() !== updatedTicket.reportedBy._id.toString()) {
           const prefAssignee = await User.findById(updatedTicket.assignedTo._id).select('preferences.notificationsEnabled').lean();
           if (prefAssignee?.preferences?.notificationsEnabled !== false) {
-            docs.push({ user: updatedTicket.assignedTo._id, type: 'helpdesk_status_update', title, message: updatedTicket.title, data: { ticketId: updatedTicket._id, status: updates.status } });
+            docs.push({ user: updatedTicket.assignedTo._id, type: 'helpdesk_status_update', title: notifTitle, message: notifMessage, data: { ticketId: updatedTicket._id, status: updates.status } });
           }
         }
+
         if (docs.length) {
           const created = await Notification.insertMany(docs);
           if (global.io) {
