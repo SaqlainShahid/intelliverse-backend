@@ -162,6 +162,7 @@ router.get('/chats', async (req, res) => {
           category: c.category || null,
           clubId: c.club || null,
           eventId: c.event || null,
+          admins: (c.admins || []).map(id => id.toString()),
           group: { name: c.name, description: c.description, memberCount: (c.participants || []).length },
           lastMessage: lastMsgData,
           updatedAt: c.updatedAt,
