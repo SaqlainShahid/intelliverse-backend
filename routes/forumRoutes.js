@@ -51,8 +51,11 @@ router.get('/posts', async (req, res) => {
   }
 });
 
-// POST /api/forum/posts — create question
+// POST /api/forum/posts — create question (students only)
 router.post('/posts', async (req, res) => {
+  if (req.user.role !== 'student') {
+    return res.status(403).json({ success: false, message: 'Only students can post questions in the forum.' });
+  }
   try {
     const { title, body, category } = req.body;
     if (!title?.trim() || !body?.trim()) {
@@ -114,8 +117,11 @@ router.get('/posts/:id', async (req, res) => {
   }
 });
 
-// PATCH /api/forum/posts/:id/upvote — toggle upvote
+// PATCH /api/forum/posts/:id/upvote — toggle upvote (students only)
 router.patch('/posts/:id/upvote', async (req, res) => {
+  if (req.user.role !== 'student') {
+    return res.status(403).json({ success: false, message: 'Only students can upvote.' });
+  }
   try {
     const post = await ForumPost.findById(req.params.id);
     if (!post) return res.status(404).json({ success: false, message: 'Post not found' });
@@ -132,8 +138,11 @@ router.patch('/posts/:id/upvote', async (req, res) => {
   }
 });
 
-// POST /api/forum/posts/:id/answers — post an answer
+// POST /api/forum/posts/:id/answers — post an answer (students only)
 router.post('/posts/:id/answers', async (req, res) => {
+  if (req.user.role !== 'student') {
+    return res.status(403).json({ success: false, message: 'Only students can post answers in the forum.' });
+  }
   try {
     const { body } = req.body;
     if (!body?.trim()) return res.status(400).json({ success: false, message: 'Answer body is required' });
