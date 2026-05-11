@@ -31,7 +31,7 @@ router.post('/internships', authenticate, authorize('admin','faculty','hod'), cr
 router.put('/internships/:id', authenticate, authorize('admin','faculty','hod'), updateInternship);
 router.delete('/internships/:id', authenticate, authorize('admin','faculty','hod'), deleteInternship);
 router.get('/internships/manage', authenticate, authorize('admin','faculty','hod'), listManageInternships);
-router.patch('/internships/:id/status', authenticate, authorize('admin','faculty','hod'), changeInternshipStatus);
+router.patch('/internships/:id/status', authenticate, authorize('admin','hod'), changeInternshipStatus);
 
 router.post('/internships/:id/apply', authenticate, authorize('student'), applyInternship);
 router.get('/applications', authenticate, authorize('admin','faculty','hod'), listApplications);
