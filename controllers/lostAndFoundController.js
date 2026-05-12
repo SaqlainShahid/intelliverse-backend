@@ -249,16 +249,22 @@ const deleteItem = async (req, res) => {
       return res.status(404).json({ success: false, message: "Item not found" });
     }
 
-    // If item has an image, delete it from uploads
+    // If item has an image URL from Cloudinary, delete it
     if (item.imageUrl) {
-      const imagePath = path.join(__dirname, "..", item.imageUrl);
-      fs.unlink(imagePath, (err) => {
-        if (err) {
-          console.error(`Failed to delete image: ${imagePath}`, err);
-        } else {
-          console.log(`Image deleted: ${imagePath}`);
-        }
-      });
+      try {
+        // Extract public_id from Cloudinary URL
+        // URL format: https://res.cloudinary.com/cloud_name/image/upload/v123456/intelliverse/lost-and-found/filename.ext
+        const urlParts = item.imageUrl.split('/');
+        const filename = urlParts[urlParts.length - 1];
+        const folder = 'intelliverse/lost-and-found';
+        const publicId = `${folder}/${filename.split('.')[0]}`;
+        
+        const { cloudinary } = require('../utils/cloudinary');
+        await cloudinary.uploader.destroy(publicId);
+        console.log(`✅ Cloudinary image deleted: ${publicId}`);
+      } catch (err) {
+        console.error(`Failed to delete Cloudinary image:`, err);
+      }
     }
 
     await item.deleteOne();
@@ -289,7 +295,7 @@ const reportItemWithImage = async (req, res) => {
     const newItemData = {
       ...req.body,
       reportedBy: currentUser._id, // Link to authenticated user
-      imageUrl: req.file ? `/uploads/${req.file.filename}` : null,
+      imageUrl: req.file ? req.file.path : null, // Cloudinary URL
       approvalStatus: approval,
       approvedBy: approval === 'approved' ? currentUser._id : null,
       approvedAt: approval === 'approved' ? new Date() : null,

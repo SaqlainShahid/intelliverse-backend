@@ -8,6 +8,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
+// Storage for classroom files (PDFs, images, etc.)
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
@@ -19,4 +20,19 @@ const storage = new CloudinaryStorage({
 
 const upload = multer({ storage: storage });
 
-module.exports = { cloudinary, upload };
+// Storage for lost and found images
+const lostAndFoundStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'intelliverse/lost-and-found',
+    resource_type: 'auto',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp']
+  }
+});
+
+const lostAndFoundUpload = multer({ 
+  storage: lostAndFoundStorage,
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+});
+
+module.exports = { cloudinary, upload, lostAndFoundUpload };

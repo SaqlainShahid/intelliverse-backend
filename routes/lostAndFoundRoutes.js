@@ -9,7 +9,7 @@ const {
   updateItemStatus,
   setItemApproval
 } = require('../controllers/lostAndFoundController');
-const { upload } = require('../middleware/upload'); // multer middleware
+const { lostAndFoundUpload } = require('../utils/cloudinary'); // Cloudinary upload for lost & found
 const { authenticate, authorize } = require('../middleware/auth');
 
 // 🔐 All routes now require authentication
@@ -28,7 +28,7 @@ router.post(
   '/with-image',
   authenticate, // Add authentication first
   (req, res, next) => {
-    upload.single('image')(req, res, function (err) {
+    lostAndFoundUpload.single('image')(req, res, function (err) {
       if (err) {
         return res.status(400).json({
           success: false,
