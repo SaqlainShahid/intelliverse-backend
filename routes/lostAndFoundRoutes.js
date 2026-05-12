@@ -44,7 +44,17 @@ router.post(
 // Update item status - authenticated users can update status (only if they reported it)
 router.put('/:id/status', authenticate, updateItemStatus);
 
-router.patch('/:id/approval', authenticate, authorize('admin'), setItemApproval);
+// Approval endpoint - admins and faculty coordinators can approve/reject items
+router.patch('/:id/approval', authenticate, (req, res, next) => {
+  // Check if user is admin or faculty coordinator
+  const isAdmin = req.user?.role === 'admin';
+  const isCoordinator = req.user?.role === 'faculty' && req.user?.profile?.designation?.toLowerCase().includes('coordinator');
+  
+  if (!isAdmin && !isCoordinator) {
+    return res.status(403).json({ success: false, message: 'Only admins and coordinators can approve items' });
+  }
+  next();
+}, setItemApproval);
 
 // Delete item - Admin only
 router.delete('/:id', authenticate, authorize('admin'), deleteItem);
