@@ -28,11 +28,17 @@ router.get('/stats', async (req, res) => {
     const Event   = require('../models/Event');
 
     // Run all counts in parallel
+    const Ticket = require('../models/Ticket');
+
     const groupChatIds = await Chat.find({ participants: userId, chatType: 'group' }).distinct('_id');
 
-    const [eventsJoined, clubsMemberships, unreadPrivate, unreadGroup] = await Promise.all([
+    const [eventsJoined, clubsMemberships, activeTickets, unreadPrivate, unreadGroup] = await Promise.all([
       Event.countDocuments({ 'attendees.user': userId }),
       Club.countDocuments({ 'members.user': userId }),
+      Ticket.countDocuments({
+        reportedBy: userId,
+        status: { $nin: ['resolved', 'closed', 'cancelled'] },
+      }),
       Message.countDocuments({ recipient: userId, status: { $ne: 'seen' }, visibleToReceiver: true }),
       Message.countDocuments({
         recipient: null,
@@ -48,7 +54,7 @@ router.get('/stats', async (req, res) => {
       data: {
         eventsJoined,
         clubsMemberships,
-        achievements: 0,
+        activeTickets,
         unreadMessages: unreadPrivate + unreadGroup,
       },
     });
