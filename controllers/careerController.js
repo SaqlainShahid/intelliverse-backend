@@ -463,10 +463,12 @@ const changeInternshipStatus = async (req, res) => {
     }
     const doc = await Internship.findById(id);
     if (!doc) return res.status(404).json({ success: false, message: 'Not found' });
+    const designation = (req.user.profile?.designation || '').toLowerCase();
     const isAdmin = req.user.role === 'admin';
-    const isFacultyOwner = req.user.role === 'faculty' && doc.createdBy && doc.createdBy.toString() === req.user._id.toString();
-    if (!isAdmin && !isFacultyOwner) {
-      return res.status(403).json({ success: false, message: 'Forbidden' });
+    const isHOD = req.user.role === 'hod' ||
+      (req.user.role === 'faculty' && (designation.includes('hod') || designation.includes('head')));
+    if (!isAdmin && !isHOD) {
+      return res.status(403).json({ success: false, message: 'Only HOD or Admin can approve or reject job submissions.' });
     }
     const updated = await Internship.findByIdAndUpdate(
       id,
