@@ -21,16 +21,37 @@ router.use(authenticate);
 // Get user statistics
 router.get('/stats', async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('-password');
-    
-    // Return basic stats based on role
-    const stats = {
-      role: user.role,
-      department: user.profile.department,
-      // Add more stats as needed
-    };
+    const userId = req.user._id;
+    const Message = require('../models/Message');
+    const Chat    = require('../models/Chat');
+    const Club    = require('../models/Club');
+    const Event   = require('../models/Event');
 
-    res.json({ success: true, data: stats });
+    // Run all counts in parallel
+    const groupChatIds = await Chat.find({ participants: userId, chatType: 'group' }).distinct('_id');
+
+    const [eventsJoined, clubsMemberships, unreadPrivate, unreadGroup] = await Promise.all([
+      Event.countDocuments({ 'attendees.user': userId }),
+      Club.countDocuments({ 'members.user': userId }),
+      Message.countDocuments({ recipient: userId, status: { $ne: 'seen' }, visibleToReceiver: true }),
+      Message.countDocuments({
+        recipient: null,
+        sender: { $ne: userId },
+        hiddenFor: { $ne: userId },
+        chat: { $in: groupChatIds },
+        $nor: [{ receipts: { $elemMatch: { user: userId, status: 'read' } } }],
+      }),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        eventsJoined,
+        clubsMemberships,
+        achievements: 0,
+        unreadMessages: unreadPrivate + unreadGroup,
+      },
+    });
   } catch (error) {
     console.error('Get user stats error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch statistics' });
