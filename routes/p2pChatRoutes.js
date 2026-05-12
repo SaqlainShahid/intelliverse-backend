@@ -907,6 +907,26 @@ router.get('/top', async (req, res) => {
   }
 });
 
+// File download proxy — avoids CORS and Cloudinary transformation 400 errors
+router.get('/download', async (req, res) => {
+  try {
+    const { url, filename } = req.query;
+    if (!url || !url.includes('cloudinary.com')) {
+      return res.status(400).json({ success: false, message: 'Invalid URL' });
+    }
+    const axios = require('axios');
+    const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 30000 });
+    const contentType = response.headers['content-type'] || 'application/octet-stream';
+    const safeName = (filename || 'download').replace(/[^a-zA-Z0-9._-]/g, '_');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', response.data.length);
+    return res.send(Buffer.from(response.data));
+  } catch (e) {
+    return res.status(500).json({ success: false, message: 'Download failed' });
+  }
+});
+
 router.post('/media', async (req, res, next) => {
   uploadAttachment.single('file')(req, res, async function (err) {
     if (err) {
@@ -917,11 +937,11 @@ router.post('/media', async (req, res, next) => {
         return res.status(500).json({ success: false, message: 'Cloudinary not configured' });
       }
       if (!req.file) return res.status(400).json({ success: false, message: 'No file provided' });
-      const resource_type = 'auto';
-      const folder = process.env.CLOUDINARY_FOLDER || 'intelliverse/chat';
-      const result = await cloudinary.uploader.upload(req.file.path, { resource_type, folder });
       const mime = req.file.mimetype || '';
       const kind = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : mime === 'application/pdf' ? 'pdf' : 'file';
+      const resource_type = (kind === 'image' || kind === 'video' || kind === 'audio') ? 'auto' : 'raw';
+      const folder = process.env.CLOUDINARY_FOLDER || 'intelliverse/chat';
+      const result = await cloudinary.uploader.upload(req.file.path, { resource_type, folder });
       const payload = {
         url: result.secure_url,
         publicId: result.public_id,
